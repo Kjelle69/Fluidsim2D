@@ -1,0 +1,2260 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2D Navier–Stokes obstacle flow</title>
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: rgba(15, 23, 42, 0.92);
+      --panel-2: rgba(15, 23, 42, 0.72);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #22d3ee;
+      --accent-2: #fde68a;
+      --accent-3: #c4b5fd;
+      --accent-4: #86efac;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top, rgba(14, 165, 233, 0.15), transparent 30%),
+        linear-gradient(180deg, #020617 0%, #020617 100%);
+    }
+
+    .wrap {
+      min-height: 100%;
+      display: grid;
+      grid-template-columns: 430px 1fr;
+      gap: 24px;
+      padding: 24px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    }
+
+    .controls {
+      padding: 22px;
+      overflow: auto;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 1.8rem;
+      line-height: 1.1;
+    }
+
+    .lead {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
+
+    .group {
+      margin-top: 18px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 14px;
+      font-size: 0.92rem;
+      color: var(--text);
+    }
+
+    .value {
+      color: var(--muted);
+      font-size: 0.86rem;
+      margin-bottom: 6px;
+    }
+
+    input[type="range"] { width: 100%; }
+    input[type="file"] { display: none; }
+
+    input[type="number"] {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #1e293b;
+      color: var(--text);
+      font: inherit;
+    }
+
+    input[type="checkbox"] {
+      transform: translateY(1px);
+      margin-right: 8px;
+    }
+
+    select {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #1e293b;
+      color: var(--text);
+      font: inherit;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    button, .file-btn {
+      border: 0;
+      border-radius: 16px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #1e293b;
+      color: var(--text);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    button.primary {
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    button.active-draw {
+      background: var(--accent);
+      color: #082f49;
+    }
+
+    button.active-erase {
+      background: var(--accent-2);
+      color: #451a03;
+    }
+
+    button.active-view {
+      background: var(--accent-3);
+      color: #2e1065;
+    }
+
+    button.good {
+      background: var(--accent-4);
+      color: #052e16;
+    }
+
+    .note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.6;
+    }
+
+    .viewer {
+      padding: 16px;
+      background: var(--panel-2);
+      display: flex;
+      align-items: stretch;
+    }
+
+    .canvas-shell {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 20px;
+      overflow: hidden;
+      background: #000;
+      border: 1px solid rgba(255,255,255,0.06);
+      cursor: crosshair;
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #flowCanvas { image-rendering: pixelated; }
+    #overlayCanvas { touch-action: none; }
+
+    .status {
+      margin-top: 10px;
+      min-height: 20px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      font-size: 0.88rem;
+      color: var(--muted);
+      margin-top: 14px;
+    }
+
+    .kv b {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .inline-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--text);
+      font-size: 0.92rem;
+    }
+
+    @media (max-width: 980px) {
+      .wrap { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="panel controls">
+      <h1>2D Navier–Stokes obstacle flow</h1>
+      <p class="lead">
+        Domän 8 × 6 meter i luft. Rita geometri, rotera modellen mot inflödet och växla mellan hastighet, tryck och virvlighet. För profiltryck: använd tryckvy, hög upplösning, låg tryckskala, inflow-störning av och confinement av eller låg.
+      </p>
+
+      <div class="group">
+        <label>
+          <div class="value">Upplösning / kvalitet</div>
+          <select id="qualityPreset"></select>
+        </label>
+
+        <label>
+          <div class="value">Modellrotation: <span id="rotationValue"></span></div>
+          <input id="rotation" type="range" min="-20" max="20" step="0.5" value="0" />
+        </label>
+
+        <label>
+          <div class="value">Inloppshastighet: <span id="inletValue"></span></div>
+          <input id="inlet" type="range" min="0.2" max="25.0" step="0.1" value="2.0" />
+        </label>
+
+        <label>
+          <div class="value">Kinematisk viskositet: <span id="viscosityValue"></span></div>
+          <input id="viscosity" type="range" min="0.000001" max="0.0002" step="0.000001" value="0.000015" />
+        </label>
+
+        <label>
+          <div class="value">Tryckiterationer: <span id="pressureValue"></span></div>
+          <input id="pressureIters" type="range" min="10" max="260" step="2" value="60" />
+        </label>
+
+        <label>
+          <div class="value">Penselradie: <span id="brushValue"></span></div>
+          <input id="brush" type="range" min="1" max="30" step="1" value="3" />
+        </label>
+
+        <label>
+          <div class="value">Substeps per frame: <span id="substepsValue"></span></div>
+          <input id="substeps" type="range" min="1" max="40" step="1" value="6" />
+        </label>
+
+        <label>
+          <div class="value">Inflow-zon: <span id="inflowColsValue"></span></div>
+          <input id="inflowCols" type="range" min="1" max="12" step="1" value="1" />
+        </label>
+
+        <label>
+          <div class="value">Inloppsprofil</div>
+          <select id="profileMode">
+            <option value="flat">Platt</option>
+            <option value="parabolic">Parabolisk</option>
+          </select>
+        </label>
+
+        <label class="inline-check">
+          <input id="inflowPerturbCheck" type="checkbox" checked />
+          <span>Stör inflödet lite</span>
+        </label>
+
+        <label>
+          <div class="value">Störningsstyrka: <span id="perturbValue"></span></div>
+          <input id="perturbAmount" type="range" min="0" max="0.2" step="0.005" value="0.04" />
+        </label>
+
+        <label class="inline-check">
+          <input id="confinementCheck" type="checkbox" checked />
+          <span>Vorticity confinement</span>
+        </label>
+
+        <label>
+          <div class="value">Confinement-styrka: <span id="confinementValue"></span></div>
+          <input id="confinementStrength" type="range" min="0" max="8" step="0.1" value="2.2" />
+        </label>
+
+        <label>
+          <div class="value">Tryckkänslighet: <span id="pressureVisualValue"></span></div>
+          <input id="pressureVisualScale" type="range" min="0.05" max="1.00" step="0.01" value="0.20" />
+        </label>
+
+        <label class="inline-check">
+          <input id="tracersCheck" type="checkbox" checked />
+          <span>Visa tracers</span>
+        </label>
+
+        <label class="inline-check">
+          <input id="flowlinesCheck" type="checkbox" checked />
+          <span>Visa strömlinjer</span>
+        </label>
+      </div>
+
+      <div class="kv">
+        <div>Domän</div><b>8.0 × 6.0 m</b>
+        <div>Kvalitetsnivå</div><b id="qualityValue">—</b>
+        <div>Grid</div><b id="gridValue">—</b>
+        <div>Cellstorlek</div><b id="cellSizeValue">—</b>
+        <div>Densitet luft</div><b>1.225 kg/m³</b>
+        <div>Kroppslängd för Re</div><b>1.0 m</b>
+        <div>Reynolds-tal</div><b id="reValue">—</b>
+        <div>Δt per substep</div><b id="dtValue">—</b>
+      </div>
+
+      <div class="row">
+        <button id="toggleBtn" class="primary">Pausa</button>
+        <button id="drawBtn" class="active-draw">Rita kropp</button>
+        <button id="eraseBtn">Sudda</button>
+        <button id="dragFluidBtn">Dra fluid</button>
+        <button id="lineBtn">Linje</button>
+        <button id="eraseLineBtn">Sudda linje</button>
+        <button id="resetBtn">Nollställ</button>
+      </div>
+
+      <div class="row">
+        <button id="velocityViewBtn" class="active-view">Hastighet</button>
+        <button id="pressureViewBtn">Tryck</button>
+        <button id="vorticityViewBtn">Virvlighet</button>
+        <button id="splitViewBtn">Delad vy</button>
+      </div>
+
+      <div class="row">
+        <button id="step50Btn" class="good">Stega 50</button>
+        <button id="step500Btn" class="good">Stega 500</button>
+        <button id="step2000Btn" class="good">Stega 2000</button>
+        <button id="resetTracersBtn" class="good">Nya tracers</button>
+      </div>
+
+      <div class="row">
+        <button id="recordStartBtn">Starta inspelning</button>
+        <button id="recordStopBtn">Stoppa inspelning</button>
+      </div>
+
+      <label>
+        <div class="value">Inspelnings-FPS: <span id="recordFpsValue"></span></div>
+        <input id="recordFps" type="range" min="10" max="60" step="1" value="30" />
+      </label>
+
+      <div class="group">
+        <label class="inline-check">
+          <input id="autoRelaxCheck" type="checkbox" checked />
+          <span>Auto-toppa efter ritning/rotation</span>
+        </label>
+        <label>
+          <div class="value">Autosteg efter ritning/rotation</div>
+          <input id="autoRelaxSteps" type="number" min="0" max="20000" step="50" value="200" />
+        </label>
+      </div>
+
+      <div class="row">
+        <button id="saveBtn">Spara modell</button>
+        <label class="file-btn" for="loadInput">Ladda modell</label>
+        <input id="loadInput" type="file" accept="application/json" />
+        <button id="resetViewBtn">Återställ vy</button>
+      </div>
+
+      <div id="status" class="status"></div>
+
+      <div class="note">
+        Tryckvyn använder en separat visuell skala. Dra ner tryckkänsligheten till 10–25 % för att få fram svagare undertryck över profilen. Inspelningen sparar det som visas i scenen som WebM-video.
+      </div>
+    </section>
+
+    <section class="panel viewer">
+      <div id="canvasShell" class="canvas-shell">
+        <canvas id="flowCanvas" width="1600" height="1200"></canvas>
+        <canvas id="overlayCanvas" width="1600" height="1200"></canvas>
+      </div>
+    </section>
+  </div>
+
+  <script type="module">
+    const PHYSICS = {
+      domainWidthM: 8.0,
+      domainHeightM: 6.0,
+      rho: 1.225,
+      characteristicLengthM: 1.0,
+    };
+
+    const QUALITY_PRESETS = [
+      { key: 'low',      label: '1 — Låg',         nx: 160, ny: 120, pressureIters: 22, substeps: 3, dt: 0.0024, inflowColumns: 1 },
+      { key: 'lowmed',   label: '2 — Ganska låg',  nx: 240, ny: 180, pressureIters: 32, substeps: 4, dt: 0.0020, inflowColumns: 1 },
+      { key: 'medium',   label: '3 — Medium',      nx: 320, ny: 240, pressureIters: 46, substeps: 4, dt: 0.0018, inflowColumns: 1 },
+      { key: 'high',     label: '4 — Hög',         nx: 400, ny: 300, pressureIters: 62, substeps: 5, dt: 0.00145, inflowColumns: 1 },
+      { key: 'veryhigh', label: '5 — Mycket hög',  nx: 480, ny: 360, pressureIters: 82, substeps: 5, dt: 0.0012, inflowColumns: 1 },
+    ];
+
+    const params = {
+      qualityKey: 'medium',
+      nx: 320,
+      ny: 240,
+      dt: 0.0015,
+      viscosity: 1.5e-5,
+      inletVelocity: 2.0,
+      pressureIters: 46,
+      obstacleBrush: 3,
+      inflowColumns: 1,
+      substepsPerFrame: 4,
+      profileMode: 'flat',
+      modelRotationDeg: 0,
+      enableInflowPerturbation: true,
+      perturbAmount: 0.04,
+      enableConfinement: true,
+      confinementStrength: 2.2,
+      pressureVisualScale: 0.20,
+      diffusionScale: 350,
+      maxFrameMs: 12,
+    };
+
+    let simTime = 0;
+
+    let derived = {
+      dx: PHYSICS.domainWidthM / params.nx,
+      dy: PHYSICS.domainHeightM / params.ny,
+      invDx: params.nx / PHYSICS.domainWidthM,
+      invDy: params.ny / PHYSICS.domainHeightM,
+    };
+
+    let running = true;
+    let tool = 'draw';
+    let dragging = false;
+    let draggingFluid = false;
+    let isDrawingGeometry = false;
+    let lastFluidDragPoint = null;
+    let pendingLineStart = null;
+    let hoverPoint = null;
+    let viewMode = 'velocity';
+    let splitRatio = 0.5;
+    let draggingSplit = false;
+
+    let view = {
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+    };
+
+    let panning = false;
+    let panStart = null;
+    let panOrigin = null;
+
+    let autoRelaxAfterDraw = true;
+    let autoRelaxSteps = 200;
+    let isBatchRunning = false;
+
+    let masterModelCells = [];
+
+    let recorder = null;
+    let recordedChunks = [];
+    let isRecording = false;
+    let recordFps = 30;
+    let showTracers = true;
+    let showFlowlines = true;
+    let tracers = [];
+    const TRACER_COUNT = 600;
+    let renderImage = null;
+    let renderImageNx = 0;
+    let renderImageNy = 0;
+
+    const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+    function idx(i, j) {
+      return i + j * params.nx;
+    }
+
+    function updateDerived() {
+      derived.dx = PHYSICS.domainWidthM / params.nx;
+      derived.dy = PHYSICS.domainHeightM / params.ny;
+      derived.invDx = 1 / derived.dx;
+      derived.invDy = 1 / derived.dy;
+    }
+
+    function createFields() {
+      const size = params.nx * params.ny;
+      return {
+        u: new Float32Array(size),
+        v: new Float32Array(size),
+        uPrev: new Float32Array(size),
+        vPrev: new Float32Array(size),
+        pressure: new Float32Array(size),
+        pressurePrev: new Float32Array(size),
+        divergence: new Float32Array(size),
+        solid: new Uint8Array(size),
+        omega: new Float32Array(size),
+        omegaMagGradX: new Float32Array(size),
+        omegaMagGradY: new Float32Array(size),
+        scratchU: new Float32Array(size),
+        scratchV: new Float32Array(size),
+      };
+    }
+
+    let fields = createFields();
+
+    const flowCanvas = document.getElementById('flowCanvas');
+    const overlayCanvas = document.getElementById('overlayCanvas');
+    const flowCtx = flowCanvas.getContext('2d');
+    const overlayCtx = overlayCanvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+
+    const offscreen = document.createElement('canvas');
+    const offscreenCtx = offscreen.getContext('2d', { willReadFrequently: true });
+
+    const recordCanvas = document.createElement('canvas');
+    recordCanvas.width = flowCanvas.width;
+    recordCanvas.height = flowCanvas.height;
+    const recordCtx = recordCanvas.getContext('2d');
+
+    function resizeOffscreen() {
+      offscreen.width = params.nx;
+      offscreen.height = params.ny;
+      renderImage = null;
+      renderImageNx = 0;
+      renderImageNy = 0;
+    }
+
+    function inletProfile(j) {
+      if (params.profileMode === 'flat') return 1.0;
+      const y = j / (params.ny - 1);
+      return 4 * y * (1 - y);
+    }
+
+    function applyPreset(key) {
+      const preset = QUALITY_PRESETS.find(p => p.key === key) ?? QUALITY_PRESETS[2];
+      params.qualityKey = preset.key;
+      params.nx = preset.nx;
+      params.ny = preset.ny;
+      params.dt = preset.dt;
+      params.pressureIters = preset.pressureIters;
+      params.substepsPerFrame = preset.substeps;
+      params.inflowColumns = preset.inflowColumns;
+      updateDerived();
+    }
+
+    function initializeFlowField() {
+      const { u, v, uPrev, vPrev, solid } = fields;
+      for (let j = 1; j < params.ny - 1; j++) {
+        const prof = inletProfile(j);
+        const targetU = params.inletVelocity * prof;
+        const row = j * params.nx;
+        for (let i = 0; i < params.nx; i++) {
+          const k = row + i;
+          if (solid[k]) continue;
+          u[k] = targetU;
+          v[k] = 0;
+          uPrev[k] = targetU;
+          vPrev[k] = 0;
+        }
+      }
+    }
+
+    function markDomainWalls() {
+      const { solid, u, v } = fields;
+      for (let i = 0; i < params.nx; i++) {
+        const kb = idx(i, 0);
+        const kt = idx(i, params.ny - 1);
+        solid[kb] = 1;
+        solid[kt] = 1;
+        u[kb] = 0; v[kb] = 0;
+        u[kt] = 0; v[kt] = 0;
+      }
+    }
+
+    function clearFluidKeepGeometry() {
+      fields.u.fill(0);
+      fields.v.fill(0);
+      fields.uPrev.fill(0);
+      fields.vPrev.fill(0);
+      fields.pressure.fill(0);
+      fields.pressurePrev.fill(0);
+      fields.divergence.fill(0);
+      fields.omega.fill(0);
+      fields.omegaMagGradX.fill(0);
+      fields.omegaMagGradY.fill(0);
+      initializeFlowField();
+      applyBoundary();
+      computeVorticity();
+    }
+
+    function resetFields() {
+      fields = createFields();
+      resizeOffscreen();
+      markDomainWalls();
+      initializeFlowField();
+      applyBoundary();
+      computeVorticity();
+      resetTracers();
+    }
+
+    function sampleBilinear(arr, x, y) {
+      const nx = params.nx;
+      const ny = params.ny;
+
+      const x0 = clamp(Math.floor(x), 0, nx - 1);
+      const y0 = clamp(Math.floor(y), 0, ny - 1);
+      const x1 = x0 < nx - 1 ? x0 + 1 : x0;
+      const y1 = y0 < ny - 1 ? y0 + 1 : y0;
+      const tx = clamp(x - x0, 0, 1);
+      const ty = clamp(y - y0, 0, 1);
+
+      const i00 = x0 + y0 * nx;
+      const i10 = x1 + y0 * nx;
+      const i01 = x0 + y1 * nx;
+      const i11 = x1 + y1 * nx;
+
+      const c00 = arr[i00];
+      const c10 = arr[i10];
+      const c01 = arr[i01];
+      const c11 = arr[i11];
+
+      const a = c00 + (c10 - c00) * tx;
+      const b = c01 + (c11 - c01) * tx;
+      return a + (b - a) * ty;
+    }
+
+    function resetTracers() {
+      tracers = Array.from({ length: TRACER_COUNT }, () => ({
+        x: Math.random() * (params.nx - 4) + 2,
+        y: Math.random() * (params.ny - 4) + 2,
+        age: Math.random(),
+      }));
+    }
+
+    function resetTracerAtInlet(tracer) {
+      tracer.x = 1 + Math.random() * Math.max(2, params.inflowColumns + 2);
+      tracer.y = 2 + Math.random() * (params.ny - 4);
+      tracer.age = 0;
+    }
+
+    function advectTracers() {
+      if (!tracers.length) return;
+
+      const { u, v, solid } = fields;
+      const scaleX = params.dt * derived.invDx;
+      const scaleY = params.dt * derived.invDy;
+
+      for (const tracer of tracers) {
+        const i = clamp(Math.round(tracer.x), 0, params.nx - 1);
+        const j = clamp(Math.round(tracer.y), 0, params.ny - 1);
+        if (solid[idx(i, j)] || tracer.x >= params.nx - 2 || tracer.y <= 1 || tracer.y >= params.ny - 2) {
+          resetTracerAtInlet(tracer);
+          continue;
+        }
+
+        const ux = sampleBilinear(u, tracer.x, tracer.y);
+        const vy = sampleBilinear(v, tracer.x, tracer.y);
+        tracer.x += ux * scaleX;
+        tracer.y += vy * scaleY;
+        tracer.age += params.dt;
+
+        if (tracer.x < 1 || tracer.x > params.nx - 2 || tracer.y < 1 || tracer.y > params.ny - 2 || tracer.age > 9) {
+          resetTracerAtInlet(tracer);
+        }
+      }
+    }
+
+    function applyBoundary() {
+      const { u, v, solid } = fields;
+      const nx = params.nx;
+      const ny = params.ny;
+      const inflowCols = Math.max(1, Math.min(params.inflowColumns, nx - 2));
+      const perturbAmp = params.enableInflowPerturbation ? params.perturbAmount * params.inletVelocity : 0;
+      const perturbFreq = 10.0;
+      const perturbWave = 0.15;
+
+      for (let j = 1; j < ny - 1; j++) {
+        const prof = inletProfile(j);
+        const targetU = params.inletVelocity * prof;
+        const perturb = perturbAmp * Math.sin(perturbFreq * simTime + j * perturbWave);
+
+        for (let i = 0; i < inflowCols; i++) {
+          const k = i + j * nx;
+          if (solid[k]) continue;
+          u[k] = targetU;
+          v[k] = perturb;
+        }
+
+        const left = j * nx;
+        if (!solid[left]) {
+          u[left] = targetU;
+          v[left] = perturb;
+        }
+
+        const right = (nx - 1) + j * nx;
+        const rightIn = (nx - 2) + j * nx;
+        if (!solid[right]) {
+          u[right] = u[rightIn];
+          v[right] = v[rightIn];
+        }
+      }
+
+      for (let i = 0; i < nx; i++) {
+        const b = i;
+        const bIn = i + nx;
+        const t = i + (ny - 1) * nx;
+        const tIn = i + (ny - 2) * nx;
+
+        u[b] = u[bIn];
+        v[b] = 0;
+        u[t] = u[tIn];
+        v[t] = 0;
+      }
+
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        const rowB = (j - 1) * nx;
+        const rowT = (j + 1) * nx;
+
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+
+          if (solid[k]) {
+            u[k] = 0;
+            v[k] = 0;
+            continue;
+          }
+
+          const leftSolid = solid[row + i - 1] === 1;
+          const rightSolid = solid[row + i + 1] === 1;
+          const bottomSolid = solid[rowB + i] === 1;
+          const topSolid = solid[rowT + i] === 1;
+
+          if (leftSolid || rightSolid) u[k] = 0;
+          if (bottomSolid || topSolid) v[k] = 0;
+        }
+      }
+    }
+
+    function advectVelocity() {
+      const { u, v, uPrev, vPrev, solid } = fields;
+      const nx = params.nx;
+      const ny = params.ny;
+      const scaleX = params.dt * derived.invDx;
+      const scaleY = params.dt * derived.invDy;
+
+      uPrev.set(u);
+      vPrev.set(v);
+
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+          if (solid[k]) {
+            u[k] = 0;
+            v[k] = 0;
+            continue;
+          }
+
+          const x = i - scaleX * uPrev[k];
+          const y = j - scaleY * vPrev[k];
+          u[k] = sampleBilinear(uPrev, x, y);
+          v[k] = sampleBilinear(vPrev, x, y);
+        }
+      }
+    }
+
+    function diffuseVelocity() {
+      const { u, v, uPrev, vPrev, scratchU, scratchV, solid } = fields;
+      const nx = params.nx;
+      const ny = params.ny;
+      const h2 = Math.min(derived.dx * derived.dx, derived.dy * derived.dy);
+      const alpha = clamp(params.viscosity * params.dt * params.diffusionScale / Math.max(h2, 1e-12), 0, 0.45);
+      if (alpha <= 1e-7) return;
+
+      uPrev.set(u);
+      vPrev.set(v);
+      scratchU.set(u);
+      scratchV.set(v);
+
+      for (let iter = 0; iter < 4; iter++) {
+        for (let j = 1; j < ny - 1; j++) {
+          const row = j * nx;
+          const rowB = (j - 1) * nx;
+          const rowT = (j + 1) * nx;
+
+          for (let i = 1; i < nx - 1; i++) {
+            const k = row + i;
+            if (solid[k]) {
+              scratchU[k] = 0;
+              scratchV[k] = 0;
+              continue;
+            }
+
+            const l = row + i - 1;
+            const r = row + i + 1;
+            const b = rowB + i;
+            const t = rowT + i;
+
+            const uL = solid[l] ? 0 : scratchU[l];
+            const uR = solid[r] ? 0 : scratchU[r];
+            const uB = solid[b] ? 0 : scratchU[b];
+            const uT = solid[t] ? 0 : scratchU[t];
+
+            const vL = solid[l] ? 0 : scratchV[l];
+            const vR = solid[r] ? 0 : scratchV[r];
+            const vB = solid[b] ? 0 : scratchV[b];
+            const vT = solid[t] ? 0 : scratchV[t];
+
+            u[k] = (uPrev[k] + alpha * (uL + uR + uB + uT)) / (1 + 4 * alpha);
+            v[k] = (vPrev[k] + alpha * (vL + vR + vB + vT)) / (1 + 4 * alpha);
+          }
+        }
+        scratchU.set(u);
+        scratchV.set(v);
+      }
+    }
+
+    function computeVorticity() {
+      const { u, v, solid, omega, omegaMagGradX, omegaMagGradY } = fields;
+      const nx = params.nx;
+      const ny = params.ny;
+      const halfInvDx = 0.5 * derived.invDx;
+      const halfInvDy = 0.5 * derived.invDy;
+
+      omega.fill(0);
+      omegaMagGradX.fill(0);
+      omegaMagGradY.fill(0);
+
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        const rowB = (j - 1) * nx;
+        const rowT = (j + 1) * nx;
+
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+          if (solid[k]) continue;
+
+          const l = row + i - 1;
+          const r = row + i + 1;
+          const b = rowB + i;
+          const t = rowT + i;
+
+          const dvDx = (v[r] - v[l]) * halfInvDx;
+          const duDy = (u[t] - u[b]) * halfInvDy;
+          omega[k] = dvDx - duDy;
+        }
+      }
+
+      for (let j = 2; j < ny - 2; j++) {
+        const row = j * nx;
+        const rowB = (j - 1) * nx;
+        const rowT = (j + 1) * nx;
+
+        for (let i = 2; i < nx - 2; i++) {
+          const k = row + i;
+          if (solid[k]) continue;
+
+          const l = row + i - 1;
+          const r = row + i + 1;
+          const b = rowB + i;
+          const t = rowT + i;
+
+          omegaMagGradX[k] = (Math.abs(omega[r]) - Math.abs(omega[l])) * halfInvDx;
+          omegaMagGradY[k] = (Math.abs(omega[t]) - Math.abs(omega[b])) * halfInvDy;
+        }
+      }
+    }
+
+    function applyVorticityConfinement() {
+      if (!params.enableConfinement || params.confinementStrength <= 0) return;
+
+      const { u, v, solid, omega, omegaMagGradX, omegaMagGradY } = fields;
+      const nx = params.nx;
+      const ny = params.ny;
+      const eps = 1e-8;
+      const strength = params.confinementStrength;
+
+      for (let j = 2; j < ny - 2; j++) {
+        const row = j * nx;
+        for (let i = 2; i < nx - 2; i++) {
+          const k = row + i;
+          if (solid[k]) continue;
+
+          const gx = omegaMagGradX[k];
+          const gy = omegaMagGradY[k];
+          const mag = Math.hypot(gx, gy);
+          if (mag < eps) continue;
+
+          const Nx = gx / mag;
+          const Ny = gy / mag;
+
+          const forceX = strength * Ny * omega[k];
+          const forceY = -strength * Nx * omega[k];
+
+          u[k] += params.dt * forceX;
+          v[k] += params.dt * forceY;
+        }
+      }
+    }
+
+    function computeDivergence() {
+      const { u, v, divergence, solid } = fields;
+      const nx = params.nx;
+      const ny = params.ny;
+      const halfInvDx = 0.5 * derived.invDx;
+      const halfInvDy = 0.5 * derived.invDy;
+
+      divergence.fill(0);
+
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        const rowB = (j - 1) * nx;
+        const rowT = (j + 1) * nx;
+
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+          if (solid[k]) continue;
+
+          const l = row + i - 1;
+          const r = row + i + 1;
+          const b = rowB + i;
+          const t = rowT + i;
+
+          const uL = solid[l] ? 0 : u[l];
+          const uR = solid[r] ? 0 : u[r];
+          const vB = solid[b] ? 0 : v[b];
+          const vT = solid[t] ? 0 : v[t];
+
+          divergence[k] = (uR - uL) * halfInvDx + (vT - vB) * halfInvDy;
+        }
+      }
+    }
+
+    function solvePressure() {
+      const { pressure, pressurePrev, divergence, solid } = fields;
+      const nx = params.nx;
+      const ny = params.ny;
+      const dx2 = derived.dx * derived.dx;
+      const dy2 = derived.dy * derived.dy;
+      const denom = 2 * (dx2 + dy2);
+
+      pressure.fill(0);
+      pressurePrev.fill(0);
+
+      for (let iter = 0; iter < params.pressureIters; iter++) {
+        for (let j = 1; j < ny - 1; j++) {
+          const row = j * nx;
+          const rowB = (j - 1) * nx;
+          const rowT = (j + 1) * nx;
+
+          for (let i = 1; i < nx - 1; i++) {
+            const k = row + i;
+            if (solid[k]) {
+              pressure[k] = 0;
+              continue;
+            }
+
+            const l = row + i - 1;
+            const r = row + i + 1;
+            const b = rowB + i;
+            const t = rowT + i;
+
+            const pL = solid[l] ? pressurePrev[k] : pressurePrev[l];
+            const pR = solid[r] ? pressurePrev[k] : pressurePrev[r];
+            const pB = solid[b] ? pressurePrev[k] : pressurePrev[b];
+            const pT = solid[t] ? pressurePrev[k] : pressurePrev[t];
+
+            pressure[k] = ((pL + pR) * dy2 + (pB + pT) * dx2 - divergence[k] * dx2 * dy2) / denom;
+          }
+        }
+        pressurePrev.set(pressure);
+      }
+    }
+
+    function project() {
+      const { u, v, pressure, solid } = fields;
+      const nx = params.nx;
+      const ny = params.ny;
+      const halfInvDx = 0.5 * derived.invDx;
+      const halfInvDy = 0.5 * derived.invDy;
+
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        const rowB = (j - 1) * nx;
+        const rowT = (j + 1) * nx;
+
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+          if (solid[k]) {
+            u[k] = 0;
+            v[k] = 0;
+            continue;
+          }
+
+          const l = row + i - 1;
+          const r = row + i + 1;
+          const b = rowB + i;
+          const t = rowT + i;
+
+          const pL = solid[l] ? pressure[k] : pressure[l];
+          const pR = solid[r] ? pressure[k] : pressure[r];
+          const pB = solid[b] ? pressure[k] : pressure[b];
+          const pT = solid[t] ? pressure[k] : pressure[t];
+
+          u[k] -= params.dt * (pR - pL) * halfInvDx;
+          v[k] -= params.dt * (pT - pB) * halfInvDy;
+        }
+      }
+    }
+
+    function step() {
+      simTime += params.dt;
+      advectVelocity();
+      applyBoundary();
+      diffuseVelocity();
+      applyBoundary();
+      computeVorticity();
+      applyVorticityConfinement();
+      applyBoundary();
+      computeDivergence();
+      solvePressure();
+      project();
+      applyBoundary();
+      computeVorticity();
+      advectTracers();
+    }
+
+    function gridToMetersX(i) {
+      return (i + 0.5) * derived.dx;
+    }
+
+    function gridToMetersY(j) {
+      return (j + 0.5) * derived.dy;
+    }
+
+    function metersToGridX(x) {
+      return clamp(x * derived.invDx - 0.5, 0, params.nx - 1);
+    }
+
+    function metersToGridY(y) {
+      return clamp(y * derived.invDy - 0.5, 0, params.ny - 1);
+    }
+
+    function getModelCenter(cells) {
+      if (!cells.length) {
+        return {
+          x: PHYSICS.domainWidthM * 0.5,
+          y: PHYSICS.domainHeightM * 0.5,
+        };
+      }
+
+      let sx = 0;
+      let sy = 0;
+      for (const c of cells) {
+        sx += c.x;
+        sy += c.y;
+      }
+
+      return {
+        x: sx / cells.length,
+        y: sy / cells.length,
+      };
+    }
+
+    function captureModelFromSolid() {
+      const captured = [];
+
+      for (let j = 1; j < params.ny - 1; j++) {
+        for (let i = 1; i < params.nx - 1; i++) {
+          const k = idx(i, j);
+          if (!fields.solid[k]) continue;
+          captured.push({
+            x: gridToMetersX(i),
+            y: gridToMetersY(j),
+          });
+        }
+      }
+
+      if (!captured.length) {
+        masterModelCells = [];
+        return;
+      }
+
+      const angle = params.modelRotationDeg * Math.PI / 180;
+      const ca = Math.cos(-angle);
+      const sa = Math.sin(-angle);
+      const center = getModelCenter(captured);
+
+      masterModelCells = captured.map(cell => {
+        const lx = cell.x - center.x;
+        const ly = cell.y - center.y;
+
+        return {
+          x: center.x + lx * ca - ly * sa,
+          y: center.y + lx * sa + ly * ca,
+        };
+      });
+    }
+
+    function rebuildSolidFromMasterModel() {
+      fields.solid.fill(0);
+
+      if (!masterModelCells.length) {
+        markDomainWalls();
+        clearFluidKeepGeometry();
+        return;
+      }
+
+      const angle = params.modelRotationDeg * Math.PI / 180;
+      const ca = Math.cos(angle);
+      const sa = Math.sin(angle);
+      const center = getModelCenter(masterModelCells);
+
+      for (const cell of masterModelCells) {
+        const lx = cell.x - center.x;
+        const ly = cell.y - center.y;
+
+        const rx = center.x + lx * ca - ly * sa;
+        const ry = center.y + lx * sa + ly * ca;
+
+        const i = Math.round(metersToGridX(rx));
+        const j = Math.round(metersToGridY(ry));
+
+        if (i <= 0 || i >= params.nx - 1 || j <= 0 || j >= params.ny - 1) continue;
+
+        const k = idx(i, j);
+        fields.solid[k] = 1;
+        fields.u[k] = 0;
+        fields.v[k] = 0;
+      }
+
+      markDomainWalls();
+      clearFluidKeepGeometry();
+    }
+
+    function drawCircleSolid(cx, cy, radiusCells, fill) {
+      const nx = params.nx;
+      const ny = params.ny;
+      const { solid, u, v } = fields;
+
+      const r2 = radiusCells * radiusCells;
+      const minX = clamp(Math.floor(cx - radiusCells), 1, nx - 2);
+      const maxX = clamp(Math.ceil(cx + radiusCells), 1, nx - 2);
+      const minY = clamp(Math.floor(cy - radiusCells), 1, ny - 2);
+      const maxY = clamp(Math.ceil(cy + radiusCells), 1, ny - 2);
+
+      for (let j = minY; j <= maxY; j++) {
+        const row = j * nx;
+        for (let i = minX; i <= maxX; i++) {
+          const dxl = i - cx;
+          const dyl = j - cy;
+          if (dxl * dxl + dyl * dyl <= r2) {
+            const k = row + i;
+            solid[k] = fill;
+            if (fill === 1) {
+              u[k] = 0;
+              v[k] = 0;
+            }
+          }
+        }
+      }
+    }
+
+    function drawLineSolid(x0, y0, x1, y1, radiusCells, fill) {
+      const dxl = x1 - x0;
+      const dyl = y1 - y0;
+      const length = Math.hypot(dxl, dyl);
+      const steps = Math.max(1, Math.ceil(length * 1.8));
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const x = x0 + dxl * t;
+        const y = y0 + dyl * t;
+        drawCircleSolid(x, y, radiusCells, fill);
+      }
+    }
+
+    function getCanvasPoint(event) {
+      const rect = overlayCanvas.getBoundingClientRect();
+      return {
+        x: ((event.clientX - rect.left) / rect.width) * overlayCanvas.width,
+        y: ((event.clientY - rect.top) / rect.height) * overlayCanvas.height,
+      };
+    }
+
+    function canvasToGrid(px, py) {
+      return {
+        x: clamp((px - view.offsetX) / view.zoom, 0, params.nx - 1),
+        y: clamp((py - view.offsetY) / view.zoom, 0, params.ny - 1),
+      };
+    }
+
+    function eventToGrid(event) {
+      const p = getCanvasPoint(event);
+      return canvasToGrid(p.x, p.y);
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function getSpeedRange() {
+      const { u, v, solid } = fields;
+      let maxSpeed = 0.001;
+      for (let k = 0; k < u.length; k++) {
+        if (solid[k]) continue;
+        const speed = Math.hypot(u[k], v[k]);
+        if (speed > maxSpeed) maxSpeed = speed;
+      }
+      return { maxSpeed };
+    }
+
+    function getPressureRange() {
+      const { pressure, solid } = fields;
+      let maxAbsPressure = 0.001;
+      for (let k = 0; k < pressure.length; k++) {
+        if (solid[k]) continue;
+        const ap = Math.abs(pressure[k]);
+        if (ap > maxAbsPressure) maxAbsPressure = ap;
+      }
+      return { maxAbsPressure };
+    }
+
+    function getVorticityRange() {
+      const { omega, solid } = fields;
+      let maxAbsOmega = 0.001;
+      for (let k = 0; k < omega.length; k++) {
+        if (solid[k]) continue;
+        const ao = Math.abs(omega[k]);
+        if (ao > maxAbsOmega) maxAbsOmega = ao;
+      }
+      return { maxAbsOmega };
+    }
+
+    function getRenderRanges() {
+      const { u, v, pressure, solid, omega } = fields;
+      let maxSpeed = 0.001;
+      let maxAbsPressure = 0.001;
+      let maxAbsOmega = 0.001;
+      const needsSpeed = viewMode === 'velocity' || viewMode === 'split';
+      const needsPressure = viewMode === 'pressure' || viewMode === 'split';
+      const needsOmega = viewMode === 'vorticity';
+
+      for (let k = 0; k < solid.length; k++) {
+        if (solid[k]) continue;
+
+        if (needsSpeed) {
+          const speed = Math.hypot(u[k], v[k]);
+          if (speed > maxSpeed) maxSpeed = speed;
+        }
+
+        if (needsPressure) {
+          const ap = Math.abs(pressure[k]);
+          if (ap > maxAbsPressure) maxAbsPressure = ap;
+        }
+
+        if (needsOmega) {
+          const ao = Math.abs(omega[k]);
+          if (ao > maxAbsOmega) maxAbsOmega = ao;
+        }
+      }
+
+      return { maxSpeed, maxAbsPressure, maxAbsOmega };
+    }
+
+    function getRenderImage() {
+      if (!renderImage || renderImageNx !== params.nx || renderImageNy !== params.ny) {
+        renderImage = offscreenCtx.createImageData(params.nx, params.ny);
+        renderImageNx = params.nx;
+        renderImageNy = params.ny;
+      }
+      return renderImage;
+    }
+
+    function velocityColor(speed, maxSpeed) {
+      const t = clamp(speed / maxSpeed, 0, 1);
+      const cold = [30, 90, 255];
+      const mid = [80, 220, 180];
+      const hot = [255, 80, 40];
+
+      let r = 0, g = 0, b = 0;
+      if (t < 0.5) {
+        const s = t / 0.5;
+        r = cold[0] * (1 - s) + mid[0] * s;
+        g = cold[1] * (1 - s) + mid[1] * s;
+        b = cold[2] * (1 - s) + mid[2] * s;
+      } else {
+        const s = (t - 0.5) / 0.5;
+        r = mid[0] * (1 - s) + hot[0] * s;
+        g = mid[1] * (1 - s) + hot[1] * s;
+        b = mid[2] * (1 - s) + hot[2] * s;
+      }
+      return [r, g, b];
+    }
+
+    function pressureColor(p, maxAbsPressure) {
+      const t = clamp(p / maxAbsPressure, -1, 1);
+      if (t >= 0) {
+        const s = t;
+        return [255, 255 * (1 - s), 255 * (1 - s)];
+      }
+      const s = -t;
+      return [255 * (1 - s), 255 * (1 - s), 255];
+    }
+
+    function vorticityColor(omega, maxAbsOmega) {
+      const t = clamp(omega / maxAbsOmega, -1, 1);
+      if (t >= 0) {
+        const s = t;
+        return [255, 255 * (1 - 0.85 * s), 255 * (1 - s)];
+      }
+      const s = -t;
+      return [255 * (1 - s), 255 * (1 - 0.85 * s), 255];
+    }
+
+    function drawTracers() {
+      if (!showTracers || !tracers.length) return;
+
+      overlayCtx.fillStyle = 'rgba(255,255,255,0.72)';
+      const size = clamp(view.zoom * 0.36, 2, 4);
+      const half = size * 0.5;
+
+      for (const tracer of tracers) {
+        const x = view.offsetX + (tracer.x + 0.5) * view.zoom;
+        const y = view.offsetY + (tracer.y + 0.5) * view.zoom;
+        overlayCtx.fillRect(x - half, y - half, size, size);
+      }
+    }
+
+    function drawFlowlines() {
+      if (!showFlowlines) return;
+
+      const { u, v, solid } = fields;
+      const seedCount = params.nx >= 400 ? 16 : 18;
+      const maxSteps = params.nx >= 400 ? 62 : 72;
+      const stepCells = 0.9;
+
+      overlayCtx.strokeStyle = 'rgba(255,255,255,0.28)';
+      overlayCtx.lineWidth = 1.15;
+
+      for (let s = 0; s < seedCount; s++) {
+        let x = 2.5;
+        let y = 2 + (s + 0.5) * (params.ny - 4) / seedCount;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(view.offsetX + (x + 0.5) * view.zoom, view.offsetY + (y + 0.5) * view.zoom);
+
+        for (let n = 0; n < maxSteps; n++) {
+          const i = clamp(Math.round(x), 0, params.nx - 1);
+          const j = clamp(Math.round(y), 0, params.ny - 1);
+          if (solid[idx(i, j)] || x < 1 || x > params.nx - 2 || y < 1 || y > params.ny - 2) break;
+
+          const ux = sampleBilinear(u, x, y);
+          const vy = sampleBilinear(v, x, y);
+          const speed = Math.hypot(ux, vy);
+          if (speed < 0.02) break;
+
+          x += (ux / speed) * stepCells;
+          y += (vy / speed) * stepCells;
+          overlayCtx.lineTo(view.offsetX + (x + 0.5) * view.zoom, view.offsetY + (y + 0.5) * view.zoom);
+        }
+
+        overlayCtx.stroke();
+      }
+    }
+
+    function render() {
+      const image = getRenderImage();
+      const data = image.data;
+      const { u, v, pressure, solid, omega } = fields;
+      const { maxSpeed, maxAbsPressure, maxAbsOmega } = getRenderRanges();
+      const pressureDisplayScale = Math.max(maxAbsPressure * params.pressureVisualScale, 1e-6);
+      const splitX = Math.floor(params.nx * splitRatio);
+
+      for (let k = 0; k < solid.length; k++) {
+        const p = 4 * k;
+
+        if (solid[k]) {
+          data[p + 0] = 30;
+          data[p + 1] = 30;
+          data[p + 2] = 35;
+          data[p + 3] = 255;
+          continue;
+        }
+
+        const speed = Math.hypot(u[k], v[k]);
+        let rgb;
+
+        if (viewMode === 'pressure') {
+          rgb = pressureColor(pressure[k], pressureDisplayScale);
+        } else if (viewMode === 'vorticity') {
+          rgb = vorticityColor(omega[k], maxAbsOmega);
+        } else if (viewMode === 'split') {
+          const i = k % params.nx;
+          rgb = i < splitX
+            ? velocityColor(speed, maxSpeed)
+            : pressureColor(pressure[k], pressureDisplayScale);
+        } else {
+          rgb = velocityColor(speed, maxSpeed);
+        }
+
+        data[p + 0] = rgb[0];
+        data[p + 1] = rgb[1];
+        data[p + 2] = rgb[2];
+        data[p + 3] = 255;
+      }
+
+      offscreenCtx.putImageData(image, 0, 0);
+
+      flowCtx.setTransform(1, 0, 0, 1, 0, 0);
+      flowCtx.clearRect(0, 0, flowCanvas.width, flowCanvas.height);
+      flowCtx.imageSmoothingEnabled = false;
+      flowCtx.drawImage(
+        offscreen,
+        0, 0, params.nx, params.ny,
+        view.offsetX, view.offsetY,
+        params.nx * view.zoom,
+        params.ny * view.zoom
+      );
+
+      overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+      if (viewMode === 'split') {
+        const splitPx = view.offsetX + splitX * view.zoom;
+        overlayCtx.strokeStyle = draggingSplit ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)';
+        overlayCtx.lineWidth = draggingSplit ? 3 : 2;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(splitPx, view.offsetY);
+        overlayCtx.lineTo(splitPx, view.offsetY + params.ny * view.zoom);
+        overlayCtx.stroke();
+      }
+
+      drawFlowlines();
+      drawTracers();
+
+      if (viewMode === 'velocity' || viewMode === 'split') {
+        overlayCtx.strokeStyle = 'rgba(255,255,255,0.35)';
+        overlayCtx.lineWidth = 1;
+
+        const stride = Math.max(8, Math.round(params.nx / 20));
+        const vectorLimit = viewMode === 'split' ? Math.max(2, splitX - 2) : params.nx - 2;
+
+        for (let j = 2; j < params.ny - 2; j += stride) {
+          for (let i = 2; i < vectorLimit; i += stride) {
+            const k = idx(i, j);
+            if (fields.solid[k]) continue;
+
+            const ux = fields.u[k];
+            const vy = fields.v[k];
+            const len = Math.hypot(ux, vy);
+            if (len < 0.02) continue;
+
+            const x = view.offsetX + (i + 0.5) * view.zoom;
+            const y = view.offsetY + (j + 0.5) * view.zoom;
+            const scale = 0.05 * view.zoom;
+
+            overlayCtx.beginPath();
+            overlayCtx.moveTo(x, y);
+            overlayCtx.lineTo(x + ux * scale, y + vy * scale);
+            overlayCtx.stroke();
+          }
+        }
+      }
+
+      if (pendingLineStart) {
+        overlayCtx.strokeStyle = tool === 'eraseLine'
+          ? 'rgba(253, 230, 138, 0.95)'
+          : 'rgba(34, 211, 238, 0.95)';
+        overlayCtx.fillStyle = overlayCtx.strokeStyle;
+        overlayCtx.lineWidth = 2;
+
+        overlayCtx.beginPath();
+        overlayCtx.arc(
+          view.offsetX + (pendingLineStart.x + 0.5) * view.zoom,
+          view.offsetY + (pendingLineStart.y + 0.5) * view.zoom,
+          5,
+          0,
+          Math.PI * 2
+        );
+        overlayCtx.fill();
+
+        if (hoverPoint) {
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(
+            view.offsetX + (pendingLineStart.x + 0.5) * view.zoom,
+            view.offsetY + (pendingLineStart.y + 0.5) * view.zoom
+          );
+          overlayCtx.lineTo(
+            view.offsetX + (hoverPoint.x + 0.5) * view.zoom,
+            view.offsetY + (hoverPoint.y + 0.5) * view.zoom
+          );
+          overlayCtx.stroke();
+        }
+      }
+
+      recordCtx.setTransform(1, 0, 0, 1, 0, 0);
+      recordCtx.clearRect(0, 0, recordCanvas.width, recordCanvas.height);
+      recordCtx.drawImage(flowCanvas, 0, 0);
+      recordCtx.drawImage(overlayCanvas, 0, 0);
+    }
+
+    function commitGeometryChange() {
+      captureModelFromSolid();
+      rebuildSolidFromMasterModel();
+      render();
+    }
+
+    function paintFromEvent(event) {
+      const { x, y } = eventToGrid(event);
+      drawCircleSolid(x, y, params.obstacleBrush, tool === 'draw' ? 1 : 0);
+      render();
+    }
+
+    function stirFluidFromEvent(event) {
+      const point = eventToGrid(event);
+      if (!lastFluidDragPoint) {
+        lastFluidDragPoint = point;
+        return;
+      }
+
+      const dx = point.x - lastFluidDragPoint.x;
+      const dy = point.y - lastFluidDragPoint.y;
+      lastFluidDragPoint = point;
+
+      const pushU = dx * derived.dx / Math.max(params.dt, 1e-6) * 0.35;
+      const pushV = dy * derived.dy / Math.max(params.dt, 1e-6) * 0.35;
+      const radius = Math.max(params.obstacleBrush * 2.2, 8);
+      const r2 = radius * radius;
+      const { u, v, solid } = fields;
+      const minX = clamp(Math.floor(point.x - radius), 1, params.nx - 2);
+      const maxX = clamp(Math.ceil(point.x + radius), 1, params.nx - 2);
+      const minY = clamp(Math.floor(point.y - radius), 1, params.ny - 2);
+      const maxY = clamp(Math.ceil(point.y + radius), 1, params.ny - 2);
+
+      for (let j = minY; j <= maxY; j++) {
+        const row = j * params.nx;
+        for (let i = minX; i <= maxX; i++) {
+          const k = row + i;
+          if (solid[k]) continue;
+
+          const ox = i - point.x;
+          const oy = j - point.y;
+          const d2 = ox * ox + oy * oy;
+          if (d2 > r2) continue;
+
+          const w = 0.5 + 0.5 * Math.cos(Math.PI * Math.sqrt(d2) / radius);
+          u[k] = u[k] * (1 - 0.25 * w) + (u[k] + pushU) * (0.25 * w);
+          v[k] = v[k] * (1 - 0.25 * w) + (v[k] + pushV) * (0.25 * w);
+        }
+      }
+
+      applyBoundary();
+      computeVorticity();
+      render();
+    }
+
+    function lineFromEvent(event) {
+      const { x, y } = eventToGrid(event);
+
+      if (!pendingLineStart) {
+        pendingLineStart = { x, y };
+        hoverPoint = { x, y };
+        render();
+        return;
+      }
+
+      const fill = tool === 'line' ? 1 : 0;
+      drawLineSolid(pendingLineStart.x, pendingLineStart.y, x, y, params.obstacleBrush, fill);
+      pendingLineStart = null;
+      hoverPoint = null;
+      render();
+    }
+
+    function buildModelData() {
+      return {
+        version: 8,
+        domainWidthM: PHYSICS.domainWidthM,
+        domainHeightM: PHYSICS.domainHeightM,
+        rotationDeg: params.modelRotationDeg,
+        solids: masterModelCells.map(c => ({ x: c.x, y: c.y })),
+      };
+    }
+
+    function applyModelData(data) {
+      if (!data || !Array.isArray(data.solids)) {
+        throw new Error('Ogiltig modellfil');
+      }
+
+      masterModelCells = data.solids.map(c => ({ x: c.x, y: c.y }));
+      params.modelRotationDeg = Number(data.rotationDeg ?? 0);
+
+      resetFields();
+      rebuildSolidFromMasterModel();
+      render();
+    }
+
+    function downloadModel() {
+      const data = buildModelData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'obstacle-model-8x6m.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus(`Modell sparad: ${data.solids.length} masterceller.`);
+    }
+
+    async function loadModelFromFile(file) {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      applyModelData(data);
+      syncLabels();
+      resetView();
+      setStatus(`Modell laddad: ${data.solids.length} masterceller.`);
+    }
+
+    function resetView() {
+      view.zoom = Math.min(flowCanvas.width / params.nx, flowCanvas.height / params.ny) * 0.9;
+      view.offsetX = (flowCanvas.width - params.nx * view.zoom) * 0.5;
+      view.offsetY = (flowCanvas.height - params.ny * view.zoom) * 0.5;
+      render();
+    }
+
+    function runSimulationSteps(count) {
+      for (let i = 0; i < count; i++) step();
+    }
+
+    async function runSimulationStepsChunked(totalSteps, chunkSize = 50, label = 'Kör') {
+      if (isBatchRunning) return;
+      isBatchRunning = true;
+
+      const prevRunning = running;
+      running = false;
+      toggleBtn.textContent = 'Starta';
+
+      let done = 0;
+      while (done < totalSteps) {
+        const n = Math.min(chunkSize, totalSteps - done);
+        runSimulationSteps(n);
+        done += n;
+        setStatus(`${label}: ${done} / ${totalSteps} steg`);
+        render();
+        await new Promise(requestAnimationFrame);
+      }
+
+      setStatus(`${label} klar: ${totalSteps} steg`);
+      isBatchRunning = false;
+      running = prevRunning;
+      toggleBtn.textContent = running ? 'Pausa' : 'Starta';
+    }
+
+    function chooseSupportedMimeType() {
+      const candidates = [
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm'
+      ];
+      for (const type of candidates) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) return type;
+      }
+      return '';
+    }
+
+    function getRecordingCanvas() {
+      return recordCanvas;
+    }
+
+    function startRecording() {
+      if (isRecording) return;
+      if (!window.MediaRecorder) {
+        setStatus('MediaRecorder stöds inte i den här webbläsaren.');
+        return;
+      }
+
+      const canvas = getRecordingCanvas();
+      const stream = canvas.captureStream(recordFps);
+      const mimeType = chooseSupportedMimeType();
+
+      recordedChunks = [];
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: recorder.mimeType || 'video/webm' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `flow-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+        a.click();
+
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+        recordedChunks = [];
+        recorder = null;
+        isRecording = false;
+        syncLabels();
+        setStatus('Inspelning stoppad och video sparad.');
+      };
+
+      recorder.start(250);
+      isRecording = true;
+      syncLabels();
+      setStatus('Inspelning startad.');
+    }
+
+    function stopRecording() {
+      if (!isRecording || !recorder) return;
+      recorder.stop();
+    }
+
+    const qualityPreset = document.getElementById('qualityPreset');
+    const rotation = document.getElementById('rotation');
+    const inlet = document.getElementById('inlet');
+    const viscosity = document.getElementById('viscosity');
+    const pressureIters = document.getElementById('pressureIters');
+    const brush = document.getElementById('brush');
+    const substeps = document.getElementById('substeps');
+    const inflowCols = document.getElementById('inflowCols');
+    const profileMode = document.getElementById('profileMode');
+    const inflowPerturbCheck = document.getElementById('inflowPerturbCheck');
+    const perturbAmount = document.getElementById('perturbAmount');
+    const confinementCheck = document.getElementById('confinementCheck');
+    const confinementStrength = document.getElementById('confinementStrength');
+    const pressureVisualScale = document.getElementById('pressureVisualScale');
+    const tracersCheck = document.getElementById('tracersCheck');
+    const flowlinesCheck = document.getElementById('flowlinesCheck');
+    const recordStartBtn = document.getElementById('recordStartBtn');
+    const recordStopBtn = document.getElementById('recordStopBtn');
+    const recordFpsInput = document.getElementById('recordFps');
+    const recordFpsValue = document.getElementById('recordFpsValue');
+    const saveBtn = document.getElementById('saveBtn');
+    const loadInput = document.getElementById('loadInput');
+    const resetViewBtn = document.getElementById('resetViewBtn');
+    const autoRelaxCheck = document.getElementById('autoRelaxCheck');
+    const autoRelaxStepsInput = document.getElementById('autoRelaxSteps');
+    const step50Btn = document.getElementById('step50Btn');
+    const step500Btn = document.getElementById('step500Btn');
+    const step2000Btn = document.getElementById('step2000Btn');
+    const resetTracersBtn = document.getElementById('resetTracersBtn');
+
+    const rotationValue = document.getElementById('rotationValue');
+    const inletValue = document.getElementById('inletValue');
+    const viscosityValue = document.getElementById('viscosityValue');
+    const pressureValue = document.getElementById('pressureValue');
+    const brushValue = document.getElementById('brushValue');
+    const substepsValue = document.getElementById('substepsValue');
+    const inflowColsValue = document.getElementById('inflowColsValue');
+    const perturbValue = document.getElementById('perturbValue');
+    const confinementValue = document.getElementById('confinementValue');
+    const pressureVisualValue = document.getElementById('pressureVisualValue');
+    const reValue = document.getElementById('reValue');
+    const dtValue = document.getElementById('dtValue');
+    const cellSizeValue = document.getElementById('cellSizeValue');
+    const gridValue = document.getElementById('gridValue');
+    const qualityValue = document.getElementById('qualityValue');
+
+    function populateQualityOptions() {
+      qualityPreset.innerHTML = '';
+      for (const preset of QUALITY_PRESETS) {
+        const opt = document.createElement('option');
+        opt.value = preset.key;
+        opt.textContent = `${preset.label} — ${preset.nx} × ${preset.ny}`;
+        qualityPreset.appendChild(opt);
+      }
+    }
+
+    function syncLabels() {
+      const preset = QUALITY_PRESETS.find(p => p.key === params.qualityKey) ?? QUALITY_PRESETS[2];
+      const brushMeters = params.obstacleBrush * Math.min(derived.dx, derived.dy);
+      const inflowMeters = params.inflowColumns * derived.dx;
+      const Re = params.inletVelocity * PHYSICS.characteristicLengthM / Math.max(params.viscosity, 1e-12);
+
+      qualityPreset.value = params.qualityKey;
+      rotation.value = String(params.modelRotationDeg);
+      inlet.value = String(params.inletVelocity);
+      viscosity.value = String(params.viscosity);
+      pressureIters.value = String(params.pressureIters);
+      brush.value = String(params.obstacleBrush);
+      substeps.value = String(params.substepsPerFrame);
+      inflowCols.value = String(params.inflowColumns);
+      profileMode.value = params.profileMode;
+      inflowPerturbCheck.checked = params.enableInflowPerturbation;
+      perturbAmount.value = String(params.perturbAmount);
+      confinementCheck.checked = params.enableConfinement;
+      confinementStrength.value = String(params.confinementStrength);
+      pressureVisualScale.value = String(params.pressureVisualScale);
+      tracersCheck.checked = showTracers;
+      flowlinesCheck.checked = showFlowlines;
+      recordFpsInput.value = String(recordFps);
+
+      rotationValue.textContent = `${params.modelRotationDeg.toFixed(1)}°`;
+      inletValue.textContent = `${params.inletVelocity.toFixed(2)} m/s`;
+      viscosityValue.textContent = `${params.viscosity.toExponential(2)} m²/s`;
+      pressureValue.textContent = String(params.pressureIters);
+      brushValue.textContent = `${params.obstacleBrush} celler (${brushMeters.toFixed(3)} m)`;
+      substepsValue.textContent = String(params.substepsPerFrame);
+      inflowColsValue.textContent = `${params.inflowColumns} kolumner (${inflowMeters.toFixed(3)} m)`;
+      perturbValue.textContent = `${(params.perturbAmount * 100).toFixed(1)} % av Uin`;
+      confinementValue.textContent = params.confinementStrength.toFixed(1);
+      pressureVisualValue.textContent = `${(params.pressureVisualScale * 100).toFixed(0)} %`;
+      recordFpsValue.textContent = `${recordFps} fps`;
+
+      gridValue.textContent = `${params.nx} × ${params.ny}`;
+      qualityValue.textContent = preset.label;
+      cellSizeValue.textContent = `${derived.dx.toFixed(3)} × ${derived.dy.toFixed(3)} m`;
+      reValue.textContent = Number.isFinite(Re) ? Re.toFixed(0) : '—';
+      dtValue.textContent = `${params.dt.toFixed(4)} s`;
+
+      autoRelaxCheck.checked = autoRelaxAfterDraw;
+      autoRelaxStepsInput.value = String(autoRelaxSteps);
+
+      recordStartBtn.disabled = isRecording;
+      recordStopBtn.disabled = !isRecording;
+    }
+
+    async function maybeAutoRelax(label) {
+      if (autoRelaxAfterDraw && autoRelaxSteps > 0 && !isBatchRunning) {
+        await runSimulationStepsChunked(autoRelaxSteps, 50, label);
+      }
+    }
+
+    async function changeResolution(newKey) {
+      const model = buildModelData();
+      applyPreset(newKey);
+      resetFields();
+      masterModelCells = model.solids.map(c => ({ x: c.x, y: c.y }));
+      params.modelRotationDeg = Number(model.rotationDeg ?? params.modelRotationDeg);
+
+      if (masterModelCells.length > 0) {
+        rebuildSolidFromMasterModel();
+      }
+
+      syncLabels();
+      resetView();
+      setStatus(`Upplösning ändrad till ${params.nx} × ${params.ny}.`);
+    }
+
+    qualityPreset.addEventListener('change', async e => {
+      await changeResolution(e.target.value);
+    });
+
+    rotation.addEventListener('input', e => {
+      params.modelRotationDeg = Number(e.target.value);
+      syncLabels();
+      rebuildSolidFromMasterModel();
+      render();
+    });
+
+    rotation.addEventListener('change', async () => {
+      await maybeAutoRelax('Auto-toppar efter rotation');
+    });
+
+    inlet.addEventListener('input', e => {
+      params.inletVelocity = Number(e.target.value);
+      syncLabels();
+      render();
+    });
+
+    viscosity.addEventListener('input', e => {
+      params.viscosity = Number(e.target.value);
+      syncLabels();
+    });
+
+    pressureIters.addEventListener('input', e => {
+      params.pressureIters = Number(e.target.value);
+      syncLabels();
+    });
+
+    brush.addEventListener('input', e => {
+      params.obstacleBrush = Number(e.target.value);
+      syncLabels();
+    });
+
+    substeps.addEventListener('input', e => {
+      params.substepsPerFrame = Number(e.target.value);
+      syncLabels();
+    });
+
+    inflowCols.addEventListener('input', e => {
+      params.inflowColumns = Number(e.target.value);
+      syncLabels();
+      render();
+    });
+
+    profileMode.addEventListener('change', e => {
+      params.profileMode = e.target.value;
+      syncLabels();
+      render();
+    });
+
+    inflowPerturbCheck.addEventListener('change', e => {
+      params.enableInflowPerturbation = e.target.checked;
+      syncLabels();
+    });
+
+    perturbAmount.addEventListener('input', e => {
+      params.perturbAmount = Number(e.target.value);
+      syncLabels();
+    });
+
+    confinementCheck.addEventListener('change', e => {
+      params.enableConfinement = e.target.checked;
+      syncLabels();
+    });
+
+    confinementStrength.addEventListener('input', e => {
+      params.confinementStrength = Number(e.target.value);
+      syncLabels();
+    });
+
+    pressureVisualScale.addEventListener('input', e => {
+      params.pressureVisualScale = Number(e.target.value);
+      syncLabels();
+      render();
+    });
+
+    tracersCheck.addEventListener('change', e => {
+      showTracers = e.target.checked;
+      syncLabels();
+      render();
+    });
+
+    flowlinesCheck.addEventListener('change', e => {
+      showFlowlines = e.target.checked;
+      syncLabels();
+      render();
+    });
+
+    recordStartBtn.addEventListener('click', startRecording);
+    recordStopBtn.addEventListener('click', stopRecording);
+    recordFpsInput.addEventListener('input', e => {
+      recordFps = Number(e.target.value);
+      syncLabels();
+    });
+
+    autoRelaxCheck.addEventListener('change', e => {
+      autoRelaxAfterDraw = e.target.checked;
+      syncLabels();
+    });
+
+    autoRelaxStepsInput.addEventListener('change', e => {
+      autoRelaxSteps = Math.max(0, Number(e.target.value) || 0);
+      syncLabels();
+    });
+
+    saveBtn.addEventListener('click', downloadModel);
+
+    loadInput.addEventListener('change', async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        await loadModelFromFile(file);
+      } catch (err) {
+        setStatus(`Kunde inte ladda modell: ${err.message}`);
+      } finally {
+        loadInput.value = '';
+      }
+    });
+
+    resetViewBtn.addEventListener('click', resetView);
+
+    step50Btn.addEventListener('click', () => runSimulationStepsChunked(50, 25, 'Stega 50'));
+    step500Btn.addEventListener('click', () => runSimulationStepsChunked(500, 50, 'Stega 500'));
+    step2000Btn.addEventListener('click', () => runSimulationStepsChunked(2000, 50, 'Stega 2000'));
+    resetTracersBtn.addEventListener('click', () => {
+      resetTracers();
+      render();
+    });
+
+    const toggleBtn = document.getElementById('toggleBtn');
+    const drawBtn = document.getElementById('drawBtn');
+    const eraseBtn = document.getElementById('eraseBtn');
+    const dragFluidBtn = document.getElementById('dragFluidBtn');
+    const lineBtn = document.getElementById('lineBtn');
+    const eraseLineBtn = document.getElementById('eraseLineBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const velocityViewBtn = document.getElementById('velocityViewBtn');
+    const pressureViewBtn = document.getElementById('pressureViewBtn');
+    const vorticityViewBtn = document.getElementById('vorticityViewBtn');
+    const splitViewBtn = document.getElementById('splitViewBtn');
+
+    function syncToolButtons() {
+      drawBtn.classList.toggle('active-draw', tool === 'draw');
+      eraseBtn.classList.toggle('active-erase', tool === 'erase');
+      dragFluidBtn.classList.toggle('active-view', tool === 'dragFluid');
+      lineBtn.classList.toggle('active-draw', tool === 'line');
+      eraseLineBtn.classList.toggle('active-erase', tool === 'eraseLine');
+    }
+
+    function syncViewButtons() {
+      velocityViewBtn.classList.toggle('active-view', viewMode === 'velocity');
+      pressureViewBtn.classList.toggle('active-view', viewMode === 'pressure');
+      vorticityViewBtn.classList.toggle('active-view', viewMode === 'vorticity');
+      splitViewBtn.classList.toggle('active-view', viewMode === 'split');
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      if (isBatchRunning) return;
+      running = !running;
+      toggleBtn.textContent = running ? 'Pausa' : 'Starta';
+    });
+
+    drawBtn.addEventListener('click', () => {
+      tool = 'draw';
+      pendingLineStart = null;
+      hoverPoint = null;
+      lastFluidDragPoint = null;
+      draggingFluid = false;
+      isDrawingGeometry = false;
+      syncToolButtons();
+      render();
+    });
+
+    eraseBtn.addEventListener('click', () => {
+      tool = 'erase';
+      pendingLineStart = null;
+      hoverPoint = null;
+      lastFluidDragPoint = null;
+      draggingFluid = false;
+      isDrawingGeometry = false;
+      syncToolButtons();
+      render();
+    });
+
+    dragFluidBtn.addEventListener('click', () => {
+      tool = 'dragFluid';
+      pendingLineStart = null;
+      hoverPoint = null;
+      lastFluidDragPoint = null;
+      draggingFluid = false;
+      isDrawingGeometry = false;
+      syncToolButtons();
+      render();
+    });
+
+    lineBtn.addEventListener('click', () => {
+      tool = 'line';
+      pendingLineStart = null;
+      hoverPoint = null;
+      lastFluidDragPoint = null;
+      draggingFluid = false;
+      isDrawingGeometry = false;
+      syncToolButtons();
+      render();
+    });
+
+    eraseLineBtn.addEventListener('click', () => {
+      tool = 'eraseLine';
+      pendingLineStart = null;
+      hoverPoint = null;
+      lastFluidDragPoint = null;
+      draggingFluid = false;
+      isDrawingGeometry = false;
+      syncToolButtons();
+      render();
+    });
+
+    resetBtn.addEventListener('click', () => {
+      pendingLineStart = null;
+      hoverPoint = null;
+      params.modelRotationDeg = 0;
+      masterModelCells = [];
+      simTime = 0;
+      resetFields();
+      syncLabels();
+      setStatus('Domänen återställd.');
+      render();
+    });
+
+    velocityViewBtn.addEventListener('click', () => {
+      viewMode = 'velocity';
+      syncViewButtons();
+      render();
+    });
+
+    pressureViewBtn.addEventListener('click', () => {
+      viewMode = 'pressure';
+      syncViewButtons();
+      render();
+    });
+
+    vorticityViewBtn.addEventListener('click', () => {
+      viewMode = 'vorticity';
+      syncViewButtons();
+      render();
+    });
+
+    splitViewBtn.addEventListener('click', () => {
+      viewMode = 'split';
+      syncViewButtons();
+      render();
+    });
+
+    overlayCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    overlayCanvas.addEventListener('pointerdown', e => {
+      const p = getCanvasPoint(e);
+
+      if (viewMode === 'split') {
+        const splitPx = view.offsetX + splitRatio * params.nx * view.zoom;
+        if (Math.abs(p.x - splitPx) < 12) {
+          draggingSplit = true;
+          render();
+          return;
+        }
+      }
+
+      if (e.button === 1 || e.shiftKey) {
+        panning = true;
+        panStart = { x: p.x, y: p.y };
+        panOrigin = { x: view.offsetX, y: view.offsetY };
+        return;
+      }
+
+      if (tool === 'line' || tool === 'eraseLine') {
+        lineFromEvent(e);
+        return;
+      }
+
+      if (tool === 'dragFluid') {
+        draggingFluid = true;
+        lastFluidDragPoint = eventToGrid(e);
+        return;
+      }
+
+      isDrawingGeometry = true;
+      dragging = true;
+      paintFromEvent(e);
+    });
+
+    overlayCanvas.addEventListener('pointermove', e => {
+      const p = getCanvasPoint(e);
+      hoverPoint = eventToGrid(e);
+
+      if (draggingSplit && viewMode === 'split') {
+        const gx = (p.x - view.offsetX) / view.zoom;
+        splitRatio = clamp(gx / params.nx, 0.1, 0.9);
+        render();
+        return;
+      }
+
+      if (panning) {
+        view.offsetX = panOrigin.x + (p.x - panStart.x);
+        view.offsetY = panOrigin.y + (p.y - panStart.y);
+        render();
+        return;
+      }
+
+      if (draggingFluid && tool === 'dragFluid') {
+        stirFluidFromEvent(e);
+      } else if (dragging && (tool === 'draw' || tool === 'erase')) {
+        paintFromEvent(e);
+      } else if (pendingLineStart) {
+        render();
+      }
+    });
+
+    overlayCanvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const p = getCanvasPoint(e);
+      const gx = (p.x - view.offsetX) / view.zoom;
+      const gy = (p.y - view.offsetY) / view.zoom;
+
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      view.zoom = clamp(view.zoom * factor, 0.25, 40);
+
+      view.offsetX = p.x - gx * view.zoom;
+      view.offsetY = p.y - gy * view.zoom;
+      render();
+    }, { passive: false });
+
+    window.addEventListener('pointerup', async () => {
+      const wasDrawing = dragging || isDrawingGeometry;
+
+      dragging = false;
+      draggingFluid = false;
+      isDrawingGeometry = false;
+      lastFluidDragPoint = null;
+      panning = false;
+
+      if (draggingSplit) {
+        draggingSplit = false;
+        render();
+      }
+
+      if (wasDrawing) {
+        commitGeometryChange();
+        syncLabels();
+        await maybeAutoRelax('Auto-toppar efter ritning');
+      }
+    });
+
+    overlayCanvas.addEventListener('pointerleave', () => {
+      dragging = false;
+      draggingFluid = false;
+      isDrawingGeometry = false;
+      lastFluidDragPoint = null;
+      panning = false;
+      hoverPoint = null;
+      if (draggingSplit) draggingSplit = false;
+      render();
+    });
+
+    function init() {
+      populateQualityOptions();
+      applyPreset(params.qualityKey);
+      resetFields();
+      syncLabels();
+      syncToolButtons();
+      syncViewButtons();
+      resetView();
+      setStatus('Redo. Viskositet, tracers, strömlinjer och fluid-drag är aktiva.');
+      render();
+    }
+
+    function frame() {
+      if (running && !isDrawingGeometry && !isBatchRunning) {
+        const loops = Math.max(1, params.substepsPerFrame);
+        const frameStart = performance.now();
+        let completed = 0;
+        for (let i = 0; i < loops; i++) {
+          step();
+          completed++;
+          if (completed > 1 && performance.now() - frameStart > params.maxFrameMs) break;
+        }
+        render();
+      }
+      requestAnimationFrame(frame);
+    }
+
+    init();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
