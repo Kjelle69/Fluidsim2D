@@ -19,7 +19,12 @@
     }
 
     * { box-sizing: border-box; }
-    html, body { height: 100%; }
+    [hidden] { display: none !important; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
     body {
       margin: 0;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -30,11 +35,19 @@
     }
 
     .wrap {
-      min-height: 100%;
+      height: 100%;
+      min-height: 0;
       display: grid;
       grid-template-columns: 430px 1fr;
       gap: 24px;
       padding: 24px;
+      overflow: hidden;
+    }
+
+    .wrap.controls-collapsed {
+      grid-template-columns: 1fr;
+      gap: 0;
+      padding: 0;
     }
 
     .panel {
@@ -46,7 +59,13 @@
 
     .controls {
       padding: 22px;
-      overflow: auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .wrap.controls-collapsed .controls {
+      display: none;
     }
 
     h1 {
@@ -158,6 +177,18 @@
       color: #052e16;
     }
 
+    button.compact {
+      min-width: 44px;
+      min-height: 40px;
+      padding: 10px 12px;
+      white-space: nowrap;
+    }
+
+    .collapse-controls {
+      float: right;
+      margin: 0 0 12px 14px;
+    }
+
     .note {
       margin-top: 18px;
       color: var(--muted);
@@ -170,6 +201,16 @@
       background: var(--panel-2);
       display: flex;
       align-items: stretch;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .wrap.controls-collapsed .viewer {
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      box-shadow: none;
     }
 
     .canvas-shell {
@@ -181,6 +222,28 @@
       background: #000;
       border: 1px solid rgba(255,255,255,0.06);
       cursor: crosshair;
+    }
+
+    .wrap.controls-collapsed .canvas-shell {
+      height: 100%;
+      aspect-ratio: auto;
+      border: 0;
+      border-radius: 0;
+    }
+
+    .expand-controls {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 5;
+      display: none;
+      background: rgba(248, 250, 252, 0.92);
+      color: #0f172a;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+    }
+
+    .wrap.controls-collapsed .expand-controls {
+      display: inline-flex;
     }
 
     canvas {
@@ -225,19 +288,41 @@
     }
 
     @media (max-width: 980px) {
+      html, body {
+        height: auto;
+        overflow: auto;
+      }
+
       .wrap { grid-template-columns: 1fr; }
+
+      .controls {
+        overflow: visible;
+      }
+
+      .wrap.controls-collapsed {
+        height: 100vh;
+      }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <section class="panel controls">
+      <button id="collapseControlsBtn" class="compact collapse-controls" type="button" title="Dölj parametrar">Dölj panel</button>
       <h1>2D Navier–Stokes obstacle flow</h1>
       <p class="lead">
         Domän 8 × 6 meter i luft. Rita geometri, rotera modellen mot inflödet och växla mellan hastighet, tryck och virvlighet. För profiltryck: använd tryckvy, hög upplösning, låg tryckskala, inflow-störning av och confinement av eller låg.
       </p>
 
       <div class="group">
+        <label>
+          <div class="value">Solver</div>
+          <select id="solverMode">
+            <option value="ns">NS / Projection</option>
+            <option value="lbm">LBM / D2Q9</option>
+          </select>
+        </label>
+
         <label>
           <div class="value">Upplösning / kvalitet</div>
           <select id="qualityPreset"></select>
@@ -250,15 +335,15 @@
 
         <label>
           <div class="value">Inloppshastighet: <span id="inletValue"></span></div>
-          <input id="inlet" type="range" min="0.2" max="25.0" step="0.1" value="2.0" />
+          <input id="inlet" type="range" min="0" max="75.0" step="0.1" value="2.0" />
         </label>
 
         <label>
           <div class="value">Kinematisk viskositet: <span id="viscosityValue"></span></div>
-          <input id="viscosity" type="range" min="0.000001" max="0.0002" step="0.000001" value="0.000015" />
+          <input id="viscosity" type="range" min="-7" max="-3" step="0.01" value="-4.82" />
         </label>
 
-        <label>
+        <label data-solvers="ns">
           <div class="value">Tryckiterationer: <span id="pressureValue"></span></div>
           <input id="pressureIters" type="range" min="10" max="260" step="2" value="60" />
         </label>
@@ -273,12 +358,12 @@
           <input id="substeps" type="range" min="1" max="40" step="1" value="6" />
         </label>
 
-        <label>
+        <label data-solvers="ns">
           <div class="value">Inflow-zon: <span id="inflowColsValue"></span></div>
           <input id="inflowCols" type="range" min="1" max="12" step="1" value="1" />
         </label>
 
-        <label>
+        <label data-solvers="ns">
           <div class="value">Inloppsprofil</div>
           <select id="profileMode">
             <option value="flat">Platt</option>
@@ -286,29 +371,60 @@
           </select>
         </label>
 
-        <label class="inline-check">
+        <label>
+          <div class="value">Domängränser</div>
+          <select id="domainBoundaryMode">
+            <option value="tunnel">Vindkanal: topp/botten vägg</option>
+            <option value="open">Öppen: topp/botten utlopp</option>
+          </select>
+        </label>
+
+        <label class="inline-check" data-solvers="ns">
           <input id="inflowPerturbCheck" type="checkbox" checked />
           <span>Stör inflödet lite</span>
         </label>
 
-        <label>
+        <label data-solvers="ns">
           <div class="value">Störningsstyrka: <span id="perturbValue"></span></div>
           <input id="perturbAmount" type="range" min="0" max="0.2" step="0.005" value="0.04" />
         </label>
 
-        <label class="inline-check">
+        <label class="inline-check" data-solvers="ns">
           <input id="confinementCheck" type="checkbox" checked />
           <span>Vorticity confinement</span>
         </label>
 
-        <label>
+        <label data-solvers="ns">
           <div class="value">Confinement-styrka: <span id="confinementValue"></span></div>
           <input id="confinementStrength" type="range" min="0" max="8" step="0.1" value="2.2" />
         </label>
 
-        <label>
+        <label data-solvers="ns">
           <div class="value">Tryckkänslighet: <span id="pressureVisualValue"></span></div>
           <input id="pressureVisualScale" type="range" min="0.05" max="1.00" step="0.01" value="0.20" />
+        </label>
+
+        <label>
+          <div class="value">Tryckstötsstyrka: <span id="pulseStrengthValue"></span></div>
+          <input id="pulseStrength" type="range" min="-0.5" max="4.0" step="0.01" value="0.28" />
+        </label>
+
+        <label>
+          <div class="value">Tryckstötsradie: <span id="pulseRadiusValue"></span></div>
+          <input id="pulseRadius" type="range" min="2" max="40" step="1" value="10" />
+        </label>
+
+        <label>
+          <div class="value">Tryckstötsduration: <span id="pulseDurationValue"></span></div>
+          <input id="pulseDuration" type="range" min="1" max="240" step="1" value="36" />
+        </label>
+
+        <label>
+          <span>Tryckstötstyp</span>
+          <select id="pulseMode">
+            <option value="omni">Omnidirectional</option>
+            <option value="directed">Riktad</option>
+          </select>
         </label>
 
         <label class="inline-check">
@@ -320,9 +436,15 @@
           <input id="flowlinesCheck" type="checkbox" checked />
           <span>Visa strömlinjer</span>
         </label>
+
+        <label class="inline-check" data-solvers="lbm">
+          <input id="forceCheck" type="checkbox" checked />
+          <span>Visa kraft</span>
+        </label>
       </div>
 
       <div class="kv">
+        <div>Version</div><b id="versionValue">—</b>
         <div>Domän</div><b>8.0 × 6.0 m</b>
         <div>Kvalitetsnivå</div><b id="qualityValue">—</b>
         <div>Grid</div><b id="gridValue">—</b>
@@ -337,6 +459,7 @@
         <button id="toggleBtn" class="primary">Pausa</button>
         <button id="drawBtn" class="active-draw">Rita kropp</button>
         <button id="eraseBtn">Sudda</button>
+        <button id="pressureSourceBtn">Rita tryckstöt</button>
         <button id="dragFluidBtn">Dra fluid</button>
         <button id="lineBtn">Linje</button>
         <button id="eraseLineBtn">Sudda linje</button>
@@ -355,6 +478,8 @@
         <button id="step500Btn" class="good">Stega 500</button>
         <button id="step2000Btn" class="good">Stega 2000</button>
         <button id="resetTracersBtn" class="good">Nya tracers</button>
+        <button id="pressurePulseBtn" class="good">Tryckstöt</button>
+        <button id="stillPulseBtn" class="good">Noll luft + tryckstöt</button>
       </div>
 
       <div class="row">
@@ -393,6 +518,7 @@
     </section>
 
     <section class="panel viewer">
+      <button id="expandControlsBtn" class="expand-controls compact" type="button" title="Visa parametrar">Visa panel</button>
       <div id="canvasShell" class="canvas-shell">
         <canvas id="flowCanvas" width="1600" height="1200"></canvas>
         <canvas id="overlayCanvas" width="1600" height="1200"></canvas>
@@ -408,6 +534,11 @@
       characteristicLengthM: 1.0,
     };
 
+    const APP_VERSION = 'v260527m';
+    const APP_NAME = 'Fluidsim2D Solver Lab';
+    const APP_LEAD = 'Rita barriärer och jämför två 2D-solverlägen: NS/projection för breda flödesfält och LBM/D2Q9 för curl, bounce-back och kraft på barriärer.';
+    const AIR_KINEMATIC_VISCOSITY = 1.5e-5;
+
     const QUALITY_PRESETS = [
       { key: 'low',      label: '1 — Låg',         nx: 160, ny: 120, pressureIters: 22, substeps: 3, dt: 0.0024, inflowColumns: 1 },
       { key: 'lowmed',   label: '2 — Ganska låg',  nx: 240, ny: 180, pressureIters: 32, substeps: 4, dt: 0.0020, inflowColumns: 1 },
@@ -417,6 +548,7 @@
     ];
 
     const params = {
+      solverMode: 'lbm',
       qualityKey: 'medium',
       nx: 320,
       ny: 240,
@@ -428,6 +560,7 @@
       inflowColumns: 1,
       substepsPerFrame: 4,
       profileMode: 'flat',
+      domainBoundaryMode: 'tunnel',
       modelRotationDeg: 0,
       enableInflowPerturbation: true,
       perturbAmount: 0.04,
@@ -436,6 +569,10 @@
       pressureVisualScale: 0.20,
       diffusionScale: 350,
       maxFrameMs: 12,
+      pulseStrength: 0.28,
+      pulseRadius: 10,
+      pulseDuration: 36,
+      pulseMode: 'omni',
     };
 
     let simTime = 0;
@@ -454,6 +591,8 @@
     let isDrawingGeometry = false;
     let lastFluidDragPoint = null;
     let pendingLineStart = null;
+    let pendingPressureSourceStart = null;
+    let draggingPressureSource = false;
     let hoverPoint = null;
     let viewMode = 'velocity';
     let splitRatio = 0.5;
@@ -481,13 +620,27 @@
     let recordFps = 30;
     let showTracers = true;
     let showFlowlines = true;
+    let showForce = true;
     let tracers = [];
     const TRACER_COUNT = 600;
     let renderImage = null;
     let renderImageNx = 0;
     let renderImageNy = 0;
+    let simWorker = null;
+    let workerActive = false;
+    let workerReady = false;
+    let pendingWorkerBatchResolve = null;
+    let workerPixelFrame = null;
+    let workerVectorSamples = null;
+    let workerFlowlineSegments = null;
+    let workerForce = null;
+    let workerPulseSources = null;
+    let workerRunningBeforeGeometryEdit = null;
+    let renderQueued = false;
 
     const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+    const viscosityToSlider = value => Math.log10(Math.max(value, 1e-12));
+    const sliderToViscosity = value => 10 ** Number(value);
 
     function idx(i, j) {
       return i + j * params.nx;
@@ -541,6 +694,20 @@
       renderImage = null;
       renderImageNx = 0;
       renderImageNy = 0;
+      workerPixelFrame = null;
+      workerVectorSamples = null;
+      workerFlowlineSegments = null;
+      workerForce = null;
+      workerPulseSources = null;
+    }
+
+    function requestRender() {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        render();
+      });
     }
 
     function inletProfile(j) {
@@ -580,6 +747,8 @@
 
     function markDomainWalls() {
       const { solid, u, v } = fields;
+      if (params.domainBoundaryMode !== 'tunnel') return;
+
       for (let i = 0; i < params.nx; i++) {
         const kb = idx(i, 0);
         const kt = idx(i, params.ny - 1);
@@ -725,9 +894,15 @@
         const tIn = i + (ny - 2) * nx;
 
         u[b] = u[bIn];
-        v[b] = 0;
         u[t] = u[tIn];
-        v[t] = 0;
+
+        if (params.domainBoundaryMode === 'open') {
+          v[b] = v[bIn];
+          v[t] = v[tIn];
+        } else {
+          v[b] = 0;
+          v[t] = 0;
+        }
       }
 
       for (let j = 1; j < ny - 1; j++) {
@@ -746,11 +921,13 @@
 
           const leftSolid = solid[row + i - 1] === 1;
           const rightSolid = solid[row + i + 1] === 1;
-          const bottomSolid = solid[rowB + i] === 1;
-          const topSolid = solid[rowT + i] === 1;
+          const upperSolid = solid[rowB + i] === 1;
+          const lowerSolid = solid[rowT + i] === 1;
 
-          if (leftSolid || rightSolid) u[k] = 0;
-          if (bottomSolid || topSolid) v[k] = 0;
+          if (leftSolid && u[k] < 0) u[k] = 0;
+          if (rightSolid && u[k] > 0) u[k] = 0;
+          if (upperSolid && v[k] < 0) v[k] = 0;
+          if (lowerSolid && v[k] > 0) v[k] = 0;
         }
       }
     }
@@ -1217,6 +1394,168 @@
       statusEl.textContent = message;
     }
 
+    function getWorkerParams() {
+      return {
+        ...params,
+        viewMode,
+        splitRatio,
+        showFlowlines,
+        showForce,
+      };
+    }
+
+    function postWorker(type, payload = {}) {
+      if (!workerActive || !simWorker) return;
+      simWorker.postMessage({ type, ...payload });
+    }
+
+    function syncWorkerParams() {
+      postWorker('configure', { params: getWorkerParams() });
+    }
+
+    function pauseWorkerForGeometryEdit() {
+      if (!workerActive || isBatchRunning || workerRunningBeforeGeometryEdit !== null) return;
+      workerRunningBeforeGeometryEdit = running;
+      postWorker('running', { running: false });
+    }
+
+    function resumeWorkerAfterGeometryEdit() {
+      if (workerRunningBeforeGeometryEdit === null) return;
+      postWorker('running', { running: workerRunningBeforeGeometryEdit });
+      workerRunningBeforeGeometryEdit = null;
+    }
+
+    function sendSolidToWorker() {
+      postWorker('setSolid', {
+        params: getWorkerParams(),
+        solid: new Uint8Array(fields.solid),
+      });
+    }
+
+    function resetWorkerWithCurrentSolid() {
+      postWorker('reset', {
+        params: getWorkerParams(),
+        solid: new Uint8Array(fields.solid),
+        simTime,
+      });
+    }
+
+    function applyWorkerFrame(message) {
+      if (isDrawingGeometry || dragging) return;
+
+      simTime = Number(message.simTime ?? simTime);
+
+      if (message.pixels instanceof Uint8ClampedArray && message.pixels.length === params.nx * params.ny * 4) {
+        workerPixelFrame = message.pixels;
+      } else if (message.fields) {
+        const next = message.fields;
+        if (!next || next.u.length !== fields.u.length) return;
+        fields.u.set(next.u);
+        fields.v.set(next.v);
+        fields.pressure.set(next.pressure);
+        fields.solid.set(next.solid);
+        fields.omega.set(next.omega);
+        workerPixelFrame = null;
+      }
+
+      workerVectorSamples = message.vectorSamples instanceof Float32Array
+        ? message.vectorSamples
+        : null;
+      workerFlowlineSegments = message.flowlineSegments instanceof Float32Array
+        ? message.flowlineSegments
+        : null;
+      workerForce = message.force ?? null;
+      workerPulseSources = message.pulseSources instanceof Float32Array
+        ? message.pulseSources
+        : null;
+
+      if (message.tracers instanceof Float32Array) {
+        const count = Math.floor(message.tracers.length / 3);
+        if (tracers.length !== count) {
+          tracers = Array.from({ length: count }, () => ({ x: 0, y: 0, age: 0 }));
+        }
+
+        for (let i = 0; i < count; i++) {
+          const p = i * 3;
+          const tracer = tracers[i];
+          tracer.x = message.tracers[p + 0];
+          tracer.y = message.tracers[p + 1];
+          tracer.age = message.tracers[p + 2];
+        }
+      } else if (Array.isArray(message.tracers)) {
+        tracers = message.tracers;
+      }
+
+      render();
+    }
+
+    function startSimulationWorker() {
+      if (!window.Worker) {
+        setStatus('Web Worker stöds inte här, kör på huvudtråden.');
+        return;
+      }
+
+      if (simWorker) {
+        simWorker.terminate();
+        simWorker = null;
+      }
+
+      try {
+        simWorker = new Worker(params.solverMode === 'lbm' ? 'lbm-worker.js' : 'sim-worker.js');
+      } catch (err) {
+        setStatus(`Kunde inte starta worker: ${err.message}`);
+        return;
+      }
+
+      workerActive = true;
+      workerReady = false;
+
+      simWorker.onmessage = event => {
+        const message = event.data;
+
+        if (message.type === 'ready') {
+          workerReady = true;
+          setStatus(`Worker aktiv: ${params.solverMode === 'lbm' ? 'LBM / D2Q9' : 'NS / Projection'}.`);
+          return;
+        }
+
+        if (message.type === 'frame') {
+          applyWorkerFrame(message);
+          return;
+        }
+
+        if (message.type === 'batchProgress') {
+          setStatus(`${message.label}: ${message.done} / ${message.totalSteps} steg`);
+          return;
+        }
+
+        if (message.type === 'batchDone') {
+          isBatchRunning = false;
+          running = Boolean(message.running);
+          toggleBtn.textContent = running ? 'Pausa' : 'Starta';
+          setStatus(`${message.label} klar: ${message.totalSteps} steg`);
+          if (pendingWorkerBatchResolve) {
+            pendingWorkerBatchResolve();
+            pendingWorkerBatchResolve = null;
+          }
+        }
+      };
+
+      simWorker.onerror = event => {
+        workerActive = false;
+        workerReady = false;
+        setStatus(`Worker stoppad, kör fallback på huvudtråden: ${event.message}`);
+      };
+
+      simWorker.postMessage({
+        type: 'init',
+        params: getWorkerParams(),
+        solid: new Uint8Array(fields.solid),
+        simTime,
+        running,
+      });
+    }
+
     function getSpeedRange() {
       const { u, v, solid } = fields;
       let maxSpeed = 0.001;
@@ -1348,6 +1687,26 @@
     function drawFlowlines() {
       if (!showFlowlines) return;
 
+      if (workerActive && workerPixelFrame && workerFlowlineSegments) {
+        overlayCtx.strokeStyle = 'rgba(18, 46, 58, 0.42)';
+        overlayCtx.lineWidth = 1.15;
+        overlayCtx.beginPath();
+
+        for (let p = 0; p < workerFlowlineSegments.length; p += 4) {
+          overlayCtx.moveTo(
+            view.offsetX + (workerFlowlineSegments[p + 0] + 0.5) * view.zoom,
+            view.offsetY + (workerFlowlineSegments[p + 1] + 0.5) * view.zoom
+          );
+          overlayCtx.lineTo(
+            view.offsetX + (workerFlowlineSegments[p + 2] + 0.5) * view.zoom,
+            view.offsetY + (workerFlowlineSegments[p + 3] + 0.5) * view.zoom
+          );
+        }
+
+        overlayCtx.stroke();
+        return;
+      }
+
       const { u, v, solid } = fields;
       const seedCount = params.nx >= 400 ? 16 : 18;
       const maxSteps = params.nx >= 400 ? 62 : 72;
@@ -1381,45 +1740,208 @@
       }
     }
 
+    function drawWorkerVectors(splitX) {
+      if (!workerVectorSamples || !(viewMode === 'velocity' || viewMode === 'split')) return;
+
+      overlayCtx.strokeStyle = 'rgba(255,255,255,0.35)';
+      overlayCtx.lineWidth = 1;
+
+      for (let p = 0; p < workerVectorSamples.length; p += 4) {
+        const i = workerVectorSamples[p + 0];
+        const j = workerVectorSamples[p + 1];
+        if (viewMode === 'split' && i >= splitX) continue;
+
+        const ux = workerVectorSamples[p + 2];
+        const vy = workerVectorSamples[p + 3];
+        const len = Math.hypot(ux, vy);
+        if (len < 0.02) continue;
+
+        const x = view.offsetX + (i + 0.5) * view.zoom;
+        const y = view.offsetY + (j + 0.5) * view.zoom;
+        const scale = 0.05 * view.zoom;
+
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(x, y);
+        overlayCtx.lineTo(x + ux * scale, y + vy * scale);
+        overlayCtx.stroke();
+      }
+    }
+
+    function drawWorkerForce() {
+      if (!showForce || !workerForce || !Number.isFinite(workerForce.fx) || !Number.isFinite(workerForce.fy)) return;
+
+      const mag = Math.hypot(workerForce.fx, workerForce.fy);
+      if (mag < 1e-8) return;
+
+      const x = view.offsetX + (workerForce.x + 0.5) * view.zoom;
+      const y = view.offsetY + (workerForce.y + 0.5) * view.zoom;
+      const scale = clamp(2600 * view.zoom / Math.max(params.nx, 1), 22, 150);
+      const forceGain = clamp(mag * 0.045, 0.75, 4.2);
+      const dx = (workerForce.fx / mag) * scale * forceGain;
+      const dy = (workerForce.fy / mag) * scale * forceGain;
+      const angle = Math.atan2(dy, dx);
+
+      overlayCtx.save();
+      overlayCtx.translate(x, y);
+      overlayCtx.rotate(angle);
+      overlayCtx.fillStyle = 'rgba(180, 180, 180, 0.72)';
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(0, -4);
+      overlayCtx.lineTo(Math.hypot(dx, dy), -4);
+      overlayCtx.lineTo(Math.hypot(dx, dy), -11);
+      overlayCtx.lineTo(Math.hypot(dx, dy) + 18, 0);
+      overlayCtx.lineTo(Math.hypot(dx, dy), 11);
+      overlayCtx.lineTo(Math.hypot(dx, dy), 4);
+      overlayCtx.lineTo(0, 4);
+      overlayCtx.closePath();
+      overlayCtx.fill();
+      overlayCtx.restore();
+    }
+
+    function drawOverlayArrow(x0, y0, x1, y1, color, width = 2) {
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const len = Math.hypot(dx, dy);
+      if (len < 2) return;
+
+      const ux = dx / len;
+      const uy = dy / len;
+      const head = Math.min(18, Math.max(7, len * 0.28));
+      const side = head * 0.48;
+
+      overlayCtx.save();
+      overlayCtx.strokeStyle = color;
+      overlayCtx.fillStyle = color;
+      overlayCtx.lineWidth = width;
+      overlayCtx.lineCap = 'round';
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(x0, y0);
+      overlayCtx.lineTo(x1 - ux * head, y1 - uy * head);
+      overlayCtx.stroke();
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(x1, y1);
+      overlayCtx.lineTo(x1 - ux * head - uy * side, y1 - uy * head + ux * side);
+      overlayCtx.lineTo(x1 - ux * head + uy * side, y1 - uy * head - ux * side);
+      overlayCtx.closePath();
+      overlayCtx.fill();
+      overlayCtx.restore();
+    }
+
+    function drawPulseMarker(x, y, r, dirX, dirY, alpha, dashed = false) {
+      const directed = Math.hypot(dirX, dirY) > 0.01;
+
+      overlayCtx.save();
+      overlayCtx.strokeStyle = `rgba(255, 230, 80, ${alpha})`;
+      overlayCtx.fillStyle = `rgba(255, 230, 80, ${alpha * 0.16})`;
+      overlayCtx.lineWidth = 2;
+      if (dashed) overlayCtx.setLineDash([7, 5]);
+
+      if (directed) {
+        const angle = Math.atan2(dirY, dirX);
+        const halfAngle = Math.PI * 0.16;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(x, y);
+        overlayCtx.arc(x, y, r, angle - halfAngle, angle + halfAngle);
+        overlayCtx.closePath();
+        overlayCtx.fill();
+        overlayCtx.stroke();
+        if (dashed) overlayCtx.setLineDash([]);
+        drawOverlayArrow(x, y, x + dirX * r * 1.05, y + dirY * r * 1.05, `rgba(255, 245, 150, ${Math.min(1, alpha + 0.1)})`, 3);
+      } else {
+        overlayCtx.beginPath();
+        overlayCtx.arc(x, y, r, 0, Math.PI * 2);
+        overlayCtx.fill();
+        overlayCtx.stroke();
+      }
+
+      overlayCtx.restore();
+    }
+
+    function drawPulseSources() {
+      if (!workerPulseSources || workerPulseSources.length === 0) return;
+
+      const stride = workerPulseSources.length % 7 === 0 ? 7 : 5;
+      for (let p = 0; p < workerPulseSources.length; p += stride) {
+        const x = view.offsetX + (workerPulseSources[p + 0] + 0.5) * view.zoom;
+        const y = view.offsetY + (workerPulseSources[p + 1] + 0.5) * view.zoom;
+        const r = Math.max(4, workerPulseSources[p + 2] * view.zoom);
+        const remaining = workerPulseSources[p + 3];
+        const total = Math.max(1, workerPulseSources[p + 4]);
+        const dirX = stride >= 7 ? workerPulseSources[p + 5] : 0;
+        const dirY = stride >= 7 ? workerPulseSources[p + 6] : 0;
+        const alpha = clamp(remaining / total, 0.15, 0.9);
+
+        drawPulseMarker(x, y, r, dirX, dirY, alpha);
+      }
+    }
+
+    function drawPressureSourcePreview() {
+      if (tool !== 'pressureSource') return;
+
+      const start = pendingPressureSourceStart ?? hoverPoint;
+      if (!start) return;
+
+      const x = view.offsetX + (start.x + 0.5) * view.zoom;
+      const y = view.offsetY + (start.y + 0.5) * view.zoom;
+      const r = Math.max(4, params.pulseRadius * view.zoom);
+
+      if (params.pulseMode === 'directed') {
+        const tip = hoverPoint && pendingPressureSourceStart
+          ? hoverPoint
+          : { x: start.x + params.pulseRadius, y: start.y };
+        const dx = tip.x - start.x;
+        const dy = tip.y - start.y;
+        const len = Math.hypot(dx, dy) || 1;
+        drawPulseMarker(x, y, r, dx / len, dy / len, 0.9, true);
+      } else {
+        drawPulseMarker(x, y, r, 0, 0, 0.9, true);
+      }
+    }
+
     function render() {
       const image = getRenderImage();
       const data = image.data;
       const { u, v, pressure, solid, omega } = fields;
-      const { maxSpeed, maxAbsPressure, maxAbsOmega } = getRenderRanges();
-      const pressureDisplayScale = Math.max(maxAbsPressure * params.pressureVisualScale, 1e-6);
       const splitX = Math.floor(params.nx * splitRatio);
 
-      for (let k = 0; k < solid.length; k++) {
-        const p = 4 * k;
+      if (workerActive && workerPixelFrame) {
+        data.set(workerPixelFrame);
+      } else {
+        const { maxSpeed, maxAbsPressure, maxAbsOmega } = getRenderRanges();
+        const pressureDisplayScale = Math.max(maxAbsPressure * params.pressureVisualScale, 1e-6);
 
-        if (solid[k]) {
-          data[p + 0] = 30;
-          data[p + 1] = 30;
-          data[p + 2] = 35;
+        for (let k = 0; k < solid.length; k++) {
+          const p = 4 * k;
+
+          if (solid[k]) {
+            data[p + 0] = 30;
+            data[p + 1] = 30;
+            data[p + 2] = 35;
+            data[p + 3] = 255;
+            continue;
+          }
+
+          const speed = Math.hypot(u[k], v[k]);
+          let rgb;
+
+          if (viewMode === 'pressure') {
+            rgb = pressureColor(pressure[k], pressureDisplayScale);
+          } else if (viewMode === 'vorticity') {
+            rgb = vorticityColor(omega[k], maxAbsOmega);
+          } else if (viewMode === 'split') {
+            const i = k % params.nx;
+            rgb = i < splitX
+              ? velocityColor(speed, maxSpeed)
+              : pressureColor(pressure[k], pressureDisplayScale);
+          } else {
+            rgb = velocityColor(speed, maxSpeed);
+          }
+
+          data[p + 0] = rgb[0];
+          data[p + 1] = rgb[1];
+          data[p + 2] = rgb[2];
           data[p + 3] = 255;
-          continue;
         }
-
-        const speed = Math.hypot(u[k], v[k]);
-        let rgb;
-
-        if (viewMode === 'pressure') {
-          rgb = pressureColor(pressure[k], pressureDisplayScale);
-        } else if (viewMode === 'vorticity') {
-          rgb = vorticityColor(omega[k], maxAbsOmega);
-        } else if (viewMode === 'split') {
-          const i = k % params.nx;
-          rgb = i < splitX
-            ? velocityColor(speed, maxSpeed)
-            : pressureColor(pressure[k], pressureDisplayScale);
-        } else {
-          rgb = velocityColor(speed, maxSpeed);
-        }
-
-        data[p + 0] = rgb[0];
-        data[p + 1] = rgb[1];
-        data[p + 2] = rgb[2];
-        data[p + 3] = 255;
       }
 
       offscreenCtx.putImageData(image, 0, 0);
@@ -1450,8 +1972,12 @@
 
       drawFlowlines();
       drawTracers();
+      drawWorkerVectors(splitX);
+      drawWorkerForce();
+      drawPulseSources();
+      drawPressureSourcePreview();
 
-      if (viewMode === 'velocity' || viewMode === 'split') {
+      if (!workerPixelFrame && (viewMode === 'velocity' || viewMode === 'split')) {
         overlayCtx.strokeStyle = 'rgba(255,255,255,0.35)';
         overlayCtx.lineWidth = 1;
 
@@ -1520,13 +2046,15 @@
     function commitGeometryChange() {
       captureModelFromSolid();
       rebuildSolidFromMasterModel();
+      sendSolidToWorker();
       render();
     }
 
     function paintFromEvent(event) {
       const { x, y } = eventToGrid(event);
       drawCircleSolid(x, y, params.obstacleBrush, tool === 'draw' ? 1 : 0);
-      render();
+      workerPixelFrame = null;
+      requestRender();
     }
 
     function stirFluidFromEvent(event) {
@@ -1569,11 +2097,74 @@
 
       applyBoundary();
       computeVorticity();
+      postWorker('stir', {
+        point,
+        pushU,
+        pushV,
+        radius,
+      });
       render();
+    }
+
+    function addPressureSource(point, direction = { x: 1, y: 0 }, { stillAir = false } = {}) {
+      if (stillAir) {
+        params.inletVelocity = 0;
+        syncLabels();
+        syncWorkerParams();
+      }
+
+      const len = Math.hypot(direction.x, direction.y);
+      const source = {
+        x: clamp(point.x, 1, params.nx - 2),
+        y: clamp(point.y, 1, params.ny - 2),
+        radius: params.pulseRadius,
+        strength: params.pulseStrength,
+        duration: params.pulseDuration,
+        mode: params.pulseMode,
+        dirX: len > 0.01 ? direction.x / len : 1,
+        dirY: len > 0.01 ? direction.y / len : 0,
+      };
+
+      postWorker('addPressureSource', { source });
+      const kind = source.mode === 'directed' ? 'riktad tryckstÃ¶t' : 'omnidirectional tryckstÃ¶t';
+      setStatus(stillAir ? `Noll luft och ${kind} aktiverad.` : `${kind} aktiverad.`);
+    }
+
+    function triggerPressurePulse({ stillAir = false } = {}) {
+      addPressureSource({
+        x: Math.max(8, params.nx * 0.18),
+        y: params.ny * 0.5,
+      }, { x: 1, y: 0 }, { stillAir });
+    }
+
+    function finishPressureSource(point) {
+      const start = pendingPressureSourceStart ?? point;
+      const direction = params.pulseMode === 'directed'
+        ? { x: point.x - start.x, y: point.y - start.y }
+        : { x: 1, y: 0 };
+      addPressureSource(start, direction);
+      pendingPressureSourceStart = null;
+      draggingPressureSource = false;
+      hoverPoint = null;
+      render();
+    }
+
+    function unusedOldPressurePulse() {
+
+      const point = {
+        x: Math.max(8, params.nx * 0.18),
+        y: params.ny * 0.5,
+      };
+      const radius = Math.max(5, Math.min(params.nx, params.ny) * 0.055);
+      const strength = params.solverMode === 'lbm' ? 0.28 : 1.8;
+
+      postWorker('pressurePulse', { point, radius, strength });
+      setStatus(stillAir ? 'Noll luft och tryckstöt aktiverad.' : 'Tryckstöt aktiverad.');
     }
 
     function lineFromEvent(event) {
       const { x, y } = eventToGrid(event);
+      workerPixelFrame = null;
 
       if (!pendingLineStart) {
         pendingLineStart = { x, y };
@@ -1586,6 +2177,7 @@
       drawLineSolid(pendingLineStart.x, pendingLineStart.y, x, y, params.obstacleBrush, fill);
       pendingLineStart = null;
       hoverPoint = null;
+      commitGeometryChange();
       render();
     }
 
@@ -1609,6 +2201,7 @@
 
       resetFields();
       rebuildSolidFromMasterModel();
+      resetWorkerWithCurrentSolid();
       render();
     }
 
@@ -1645,6 +2238,23 @@
     }
 
     async function runSimulationStepsChunked(totalSteps, chunkSize = 50, label = 'Kör') {
+      if (workerActive) {
+        if (isBatchRunning) return;
+        isBatchRunning = true;
+        const prevRunning = running;
+        running = false;
+        toggleBtn.textContent = 'Starta';
+        postWorker('batch', { totalSteps, chunkSize, label });
+        return new Promise(resolve => {
+          pendingWorkerBatchResolve = () => {
+            running = prevRunning;
+            postWorker('running', { running });
+            toggleBtn.textContent = running ? 'Pausa' : 'Starta';
+            resolve();
+          };
+        });
+      }
+
       if (isBatchRunning) return;
       isBatchRunning = true;
 
@@ -1733,7 +2343,11 @@
       recorder.stop();
     }
 
+    const appWrap = document.querySelector('.wrap');
+    const collapseControlsBtn = document.getElementById('collapseControlsBtn');
+    const expandControlsBtn = document.getElementById('expandControlsBtn');
     const qualityPreset = document.getElementById('qualityPreset');
+    const solverMode = document.getElementById('solverMode');
     const rotation = document.getElementById('rotation');
     const inlet = document.getElementById('inlet');
     const viscosity = document.getElementById('viscosity');
@@ -1742,13 +2356,19 @@
     const substeps = document.getElementById('substeps');
     const inflowCols = document.getElementById('inflowCols');
     const profileMode = document.getElementById('profileMode');
+    const domainBoundaryMode = document.getElementById('domainBoundaryMode');
     const inflowPerturbCheck = document.getElementById('inflowPerturbCheck');
     const perturbAmount = document.getElementById('perturbAmount');
     const confinementCheck = document.getElementById('confinementCheck');
     const confinementStrength = document.getElementById('confinementStrength');
     const pressureVisualScale = document.getElementById('pressureVisualScale');
+    const pulseStrength = document.getElementById('pulseStrength');
+    const pulseRadius = document.getElementById('pulseRadius');
+    const pulseDuration = document.getElementById('pulseDuration');
+    const pulseMode = document.getElementById('pulseMode');
     const tracersCheck = document.getElementById('tracersCheck');
     const flowlinesCheck = document.getElementById('flowlinesCheck');
+    const forceCheck = document.getElementById('forceCheck');
     const recordStartBtn = document.getElementById('recordStartBtn');
     const recordStopBtn = document.getElementById('recordStopBtn');
     const recordFpsInput = document.getElementById('recordFps');
@@ -1762,6 +2382,9 @@
     const step500Btn = document.getElementById('step500Btn');
     const step2000Btn = document.getElementById('step2000Btn');
     const resetTracersBtn = document.getElementById('resetTracersBtn');
+    const pressurePulseBtn = document.getElementById('pressurePulseBtn');
+    const stillPulseBtn = document.getElementById('stillPulseBtn');
+    const solverSpecificControls = Array.from(document.querySelectorAll('[data-solvers]'));
 
     const rotationValue = document.getElementById('rotationValue');
     const inletValue = document.getElementById('inletValue');
@@ -1773,11 +2396,27 @@
     const perturbValue = document.getElementById('perturbValue');
     const confinementValue = document.getElementById('confinementValue');
     const pressureVisualValue = document.getElementById('pressureVisualValue');
+    const pulseStrengthValue = document.getElementById('pulseStrengthValue');
+    const pulseRadiusValue = document.getElementById('pulseRadiusValue');
+    const pulseDurationValue = document.getElementById('pulseDurationValue');
     const reValue = document.getElementById('reValue');
     const dtValue = document.getElementById('dtValue');
     const cellSizeValue = document.getElementById('cellSizeValue');
     const gridValue = document.getElementById('gridValue');
     const qualityValue = document.getElementById('qualityValue');
+    const versionValue = document.getElementById('versionValue');
+
+    function setControlsCollapsed(collapsed) {
+      appWrap.classList.toggle('controls-collapsed', collapsed);
+      requestAnimationFrame(render);
+    }
+
+    function syncSolverSpecificControls() {
+      for (const control of solverSpecificControls) {
+        const allowedSolvers = control.dataset.solvers.split(/\s+/);
+        control.hidden = !allowedSolvers.includes(params.solverMode);
+      }
+    }
 
     function populateQualityOptions() {
       qualityPreset.innerHTML = '';
@@ -1795,27 +2434,35 @@
       const inflowMeters = params.inflowColumns * derived.dx;
       const Re = params.inletVelocity * PHYSICS.characteristicLengthM / Math.max(params.viscosity, 1e-12);
 
+      syncSolverSpecificControls();
+      solverMode.value = params.solverMode;
       qualityPreset.value = params.qualityKey;
       rotation.value = String(params.modelRotationDeg);
       inlet.value = String(params.inletVelocity);
-      viscosity.value = String(params.viscosity);
+      viscosity.value = String(viscosityToSlider(params.viscosity));
       pressureIters.value = String(params.pressureIters);
       brush.value = String(params.obstacleBrush);
       substeps.value = String(params.substepsPerFrame);
       inflowCols.value = String(params.inflowColumns);
       profileMode.value = params.profileMode;
+      domainBoundaryMode.value = params.domainBoundaryMode;
       inflowPerturbCheck.checked = params.enableInflowPerturbation;
       perturbAmount.value = String(params.perturbAmount);
       confinementCheck.checked = params.enableConfinement;
       confinementStrength.value = String(params.confinementStrength);
       pressureVisualScale.value = String(params.pressureVisualScale);
+      pulseStrength.value = String(params.pulseStrength);
+      pulseRadius.value = String(params.pulseRadius);
+      pulseDuration.value = String(params.pulseDuration);
+      pulseMode.value = params.pulseMode;
       tracersCheck.checked = showTracers;
       flowlinesCheck.checked = showFlowlines;
+      forceCheck.checked = showForce;
       recordFpsInput.value = String(recordFps);
 
       rotationValue.textContent = `${params.modelRotationDeg.toFixed(1)}°`;
       inletValue.textContent = `${params.inletVelocity.toFixed(2)} m/s`;
-      viscosityValue.textContent = `${params.viscosity.toExponential(2)} m²/s`;
+      viscosityValue.textContent = `${params.viscosity.toExponential(2)} m²/s (luft ${AIR_KINEMATIC_VISCOSITY.toExponential(2)})`;
       pressureValue.textContent = String(params.pressureIters);
       brushValue.textContent = `${params.obstacleBrush} celler (${brushMeters.toFixed(3)} m)`;
       substepsValue.textContent = String(params.substepsPerFrame);
@@ -1823,10 +2470,14 @@
       perturbValue.textContent = `${(params.perturbAmount * 100).toFixed(1)} % av Uin`;
       confinementValue.textContent = params.confinementStrength.toFixed(1);
       pressureVisualValue.textContent = `${(params.pressureVisualScale * 100).toFixed(0)} %`;
+      pulseStrengthValue.textContent = params.pulseStrength.toFixed(2);
+      pulseRadiusValue.textContent = `${params.pulseRadius} celler`;
+      pulseDurationValue.textContent = `${params.pulseDuration} steg`;
       recordFpsValue.textContent = `${recordFps} fps`;
 
       gridValue.textContent = `${params.nx} × ${params.ny}`;
       qualityValue.textContent = preset.label;
+      versionValue.textContent = `${APP_VERSION} ${params.solverMode === 'lbm' ? 'LBM' : 'NS'}`;
       cellSizeValue.textContent = `${derived.dx.toFixed(3)} × ${derived.dy.toFixed(3)} m`;
       reValue.textContent = Number.isFinite(Re) ? Re.toFixed(0) : '—';
       dtValue.textContent = `${params.dt.toFixed(4)} s`;
@@ -1857,6 +2508,7 @@
 
       syncLabels();
       resetView();
+      resetWorkerWithCurrentSolid();
       setStatus(`Upplösning ändrad till ${params.nx} × ${params.ny}.`);
     }
 
@@ -1864,10 +2516,26 @@
       await changeResolution(e.target.value);
     });
 
+    solverMode.addEventListener('change', e => {
+      params.solverMode = e.target.value;
+      if (params.solverMode === 'lbm') {
+        viewMode = 'vorticity';
+        syncViewButtons();
+      }
+      workerPixelFrame = null;
+      workerVectorSamples = null;
+      workerFlowlineSegments = null;
+      workerForce = null;
+      syncLabels();
+      startSimulationWorker();
+      render();
+    });
+
     rotation.addEventListener('input', e => {
       params.modelRotationDeg = Number(e.target.value);
       syncLabels();
       rebuildSolidFromMasterModel();
+      sendSolidToWorker();
       render();
     });
 
@@ -1878,17 +2546,20 @@
     inlet.addEventListener('input', e => {
       params.inletVelocity = Number(e.target.value);
       syncLabels();
+      syncWorkerParams();
       render();
     });
 
     viscosity.addEventListener('input', e => {
-      params.viscosity = Number(e.target.value);
+      params.viscosity = sliderToViscosity(e.target.value);
       syncLabels();
+      syncWorkerParams();
     });
 
     pressureIters.addEventListener('input', e => {
       params.pressureIters = Number(e.target.value);
       syncLabels();
+      syncWorkerParams();
     });
 
     brush.addEventListener('input', e => {
@@ -1899,42 +2570,84 @@
     substeps.addEventListener('input', e => {
       params.substepsPerFrame = Number(e.target.value);
       syncLabels();
+      syncWorkerParams();
     });
 
     inflowCols.addEventListener('input', e => {
       params.inflowColumns = Number(e.target.value);
       syncLabels();
+      syncWorkerParams();
       render();
     });
 
     profileMode.addEventListener('change', e => {
       params.profileMode = e.target.value;
       syncLabels();
+      syncWorkerParams();
+      render();
+    });
+
+    domainBoundaryMode.addEventListener('change', e => {
+      params.domainBoundaryMode = e.target.value;
+      resetFields();
+      if (masterModelCells.length > 0) rebuildSolidFromMasterModel();
+      syncLabels();
+      resetWorkerWithCurrentSolid();
       render();
     });
 
     inflowPerturbCheck.addEventListener('change', e => {
       params.enableInflowPerturbation = e.target.checked;
       syncLabels();
+      syncWorkerParams();
     });
 
     perturbAmount.addEventListener('input', e => {
       params.perturbAmount = Number(e.target.value);
       syncLabels();
+      syncWorkerParams();
     });
 
     confinementCheck.addEventListener('change', e => {
       params.enableConfinement = e.target.checked;
       syncLabels();
+      syncWorkerParams();
     });
 
     confinementStrength.addEventListener('input', e => {
       params.confinementStrength = Number(e.target.value);
       syncLabels();
+      syncWorkerParams();
     });
 
     pressureVisualScale.addEventListener('input', e => {
       params.pressureVisualScale = Number(e.target.value);
+      syncLabels();
+      syncWorkerParams();
+      render();
+    });
+
+    pulseStrength.addEventListener('input', e => {
+      params.pulseStrength = Number(e.target.value);
+      syncLabels();
+      render();
+    });
+
+    pulseRadius.addEventListener('input', e => {
+      params.pulseRadius = Number(e.target.value);
+      syncLabels();
+      render();
+    });
+
+    pulseDuration.addEventListener('input', e => {
+      params.pulseDuration = Number(e.target.value);
+      syncLabels();
+    });
+
+    pulseMode.addEventListener('change', e => {
+      params.pulseMode = e.target.value;
+      pendingPressureSourceStart = null;
+      draggingPressureSource = false;
       syncLabels();
       render();
     });
@@ -1948,6 +2661,14 @@
     flowlinesCheck.addEventListener('change', e => {
       showFlowlines = e.target.checked;
       syncLabels();
+      syncWorkerParams();
+      render();
+    });
+
+    forceCheck.addEventListener('change', e => {
+      showForce = e.target.checked;
+      syncLabels();
+      syncWorkerParams();
       render();
     });
 
@@ -1983,18 +2704,30 @@
     });
 
     resetViewBtn.addEventListener('click', resetView);
+    collapseControlsBtn.addEventListener('click', () => setControlsCollapsed(true));
+    expandControlsBtn.addEventListener('click', () => setControlsCollapsed(false));
+
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && appWrap.classList.contains('controls-collapsed')) {
+        setControlsCollapsed(false);
+      }
+    });
 
     step50Btn.addEventListener('click', () => runSimulationStepsChunked(50, 25, 'Stega 50'));
     step500Btn.addEventListener('click', () => runSimulationStepsChunked(500, 50, 'Stega 500'));
     step2000Btn.addEventListener('click', () => runSimulationStepsChunked(2000, 50, 'Stega 2000'));
     resetTracersBtn.addEventListener('click', () => {
       resetTracers();
+      postWorker('resetTracers');
       render();
     });
+    pressurePulseBtn.addEventListener('click', () => triggerPressurePulse());
+    stillPulseBtn.addEventListener('click', () => triggerPressurePulse({ stillAir: true }));
 
     const toggleBtn = document.getElementById('toggleBtn');
     const drawBtn = document.getElementById('drawBtn');
     const eraseBtn = document.getElementById('eraseBtn');
+    const pressureSourceBtn = document.getElementById('pressureSourceBtn');
     const dragFluidBtn = document.getElementById('dragFluidBtn');
     const lineBtn = document.getElementById('lineBtn');
     const eraseLineBtn = document.getElementById('eraseLineBtn');
@@ -2010,6 +2743,7 @@
       dragFluidBtn.classList.toggle('active-view', tool === 'dragFluid');
       lineBtn.classList.toggle('active-draw', tool === 'line');
       eraseLineBtn.classList.toggle('active-erase', tool === 'eraseLine');
+      pressureSourceBtn.classList.toggle('active-view', tool === 'pressureSource');
     }
 
     function syncViewButtons() {
@@ -2023,14 +2757,17 @@
       if (isBatchRunning) return;
       running = !running;
       toggleBtn.textContent = running ? 'Pausa' : 'Starta';
+      postWorker('running', { running });
     });
 
     drawBtn.addEventListener('click', () => {
       tool = 'draw';
       pendingLineStart = null;
+      pendingPressureSourceStart = null;
       hoverPoint = null;
       lastFluidDragPoint = null;
       draggingFluid = false;
+      draggingPressureSource = false;
       isDrawingGeometry = false;
       syncToolButtons();
       render();
@@ -2039,9 +2776,11 @@
     eraseBtn.addEventListener('click', () => {
       tool = 'erase';
       pendingLineStart = null;
+      pendingPressureSourceStart = null;
       hoverPoint = null;
       lastFluidDragPoint = null;
       draggingFluid = false;
+      draggingPressureSource = false;
       isDrawingGeometry = false;
       syncToolButtons();
       render();
@@ -2050,9 +2789,11 @@
     dragFluidBtn.addEventListener('click', () => {
       tool = 'dragFluid';
       pendingLineStart = null;
+      pendingPressureSourceStart = null;
       hoverPoint = null;
       lastFluidDragPoint = null;
       draggingFluid = false;
+      draggingPressureSource = false;
       isDrawingGeometry = false;
       syncToolButtons();
       render();
@@ -2061,9 +2802,11 @@
     lineBtn.addEventListener('click', () => {
       tool = 'line';
       pendingLineStart = null;
+      pendingPressureSourceStart = null;
       hoverPoint = null;
       lastFluidDragPoint = null;
       draggingFluid = false;
+      draggingPressureSource = false;
       isDrawingGeometry = false;
       syncToolButtons();
       render();
@@ -2072,9 +2815,24 @@
     eraseLineBtn.addEventListener('click', () => {
       tool = 'eraseLine';
       pendingLineStart = null;
+      pendingPressureSourceStart = null;
       hoverPoint = null;
       lastFluidDragPoint = null;
       draggingFluid = false;
+      draggingPressureSource = false;
+      isDrawingGeometry = false;
+      syncToolButtons();
+      render();
+    });
+
+    pressureSourceBtn.addEventListener('click', () => {
+      tool = 'pressureSource';
+      pendingLineStart = null;
+      pendingPressureSourceStart = null;
+      hoverPoint = null;
+      lastFluidDragPoint = null;
+      draggingFluid = false;
+      draggingPressureSource = false;
       isDrawingGeometry = false;
       syncToolButtons();
       render();
@@ -2082,11 +2840,13 @@
 
     resetBtn.addEventListener('click', () => {
       pendingLineStart = null;
+      pendingPressureSourceStart = null;
       hoverPoint = null;
       params.modelRotationDeg = 0;
       masterModelCells = [];
       simTime = 0;
       resetFields();
+      resetWorkerWithCurrentSolid();
       syncLabels();
       setStatus('Domänen återställd.');
       render();
@@ -2095,24 +2855,28 @@
     velocityViewBtn.addEventListener('click', () => {
       viewMode = 'velocity';
       syncViewButtons();
+      syncWorkerParams();
       render();
     });
 
     pressureViewBtn.addEventListener('click', () => {
       viewMode = 'pressure';
       syncViewButtons();
+      syncWorkerParams();
       render();
     });
 
     vorticityViewBtn.addEventListener('click', () => {
       viewMode = 'vorticity';
       syncViewButtons();
+      syncWorkerParams();
       render();
     });
 
     splitViewBtn.addEventListener('click', () => {
       viewMode = 'split';
       syncViewButtons();
+      syncWorkerParams();
       render();
     });
 
@@ -2142,12 +2906,26 @@
         return;
       }
 
+      if (tool === 'pressureSource') {
+        pendingPressureSourceStart = eventToGrid(e);
+        hoverPoint = pendingPressureSourceStart;
+        draggingPressureSource = true;
+        if (params.pulseMode === 'omni') {
+          finishPressureSource(pendingPressureSourceStart);
+        } else {
+          render();
+        }
+        return;
+      }
+
       if (tool === 'dragFluid') {
         draggingFluid = true;
         lastFluidDragPoint = eventToGrid(e);
         return;
       }
 
+      pauseWorkerForGeometryEdit();
+      workerPixelFrame = null;
       isDrawingGeometry = true;
       dragging = true;
       paintFromEvent(e);
@@ -2160,6 +2938,7 @@
       if (draggingSplit && viewMode === 'split') {
         const gx = (p.x - view.offsetX) / view.zoom;
         splitRatio = clamp(gx / params.nx, 0.1, 0.9);
+        syncWorkerParams();
         render();
         return;
       }
@@ -2171,11 +2950,14 @@
         return;
       }
 
-      if (draggingFluid && tool === 'dragFluid') {
+      if (draggingPressureSource && tool === 'pressureSource') {
+        render();
+      } else if (draggingFluid && tool === 'dragFluid') {
         stirFluidFromEvent(e);
       } else if (dragging && (tool === 'draw' || tool === 'erase')) {
         paintFromEvent(e);
       } else if (pendingLineStart) {
+        workerPixelFrame = null;
         render();
       }
     });
@@ -2194,11 +2976,16 @@
       render();
     }, { passive: false });
 
-    window.addEventListener('pointerup', async () => {
+    window.addEventListener('pointerup', async e => {
       const wasDrawing = dragging || isDrawingGeometry;
+
+      if (draggingPressureSource && tool === 'pressureSource') {
+        finishPressureSource(eventToGrid(e));
+      }
 
       dragging = false;
       draggingFluid = false;
+      draggingPressureSource = false;
       isDrawingGeometry = false;
       lastFluidDragPoint = null;
       panning = false;
@@ -2212,21 +2999,29 @@
         commitGeometryChange();
         syncLabels();
         await maybeAutoRelax('Auto-toppar efter ritning');
+        resumeWorkerAfterGeometryEdit();
       }
     });
 
     overlayCanvas.addEventListener('pointerleave', () => {
+      const wasGeometryEditing = dragging || isDrawingGeometry;
       dragging = false;
       draggingFluid = false;
+      draggingPressureSource = false;
       isDrawingGeometry = false;
       lastFluidDragPoint = null;
       panning = false;
       hoverPoint = null;
+      pendingPressureSourceStart = null;
       if (draggingSplit) draggingSplit = false;
+      if (wasGeometryEditing) resumeWorkerAfterGeometryEdit();
       render();
     });
 
     function init() {
+      document.title = APP_NAME;
+      document.querySelector('h1').textContent = APP_NAME;
+      document.querySelector('.lead').textContent = APP_LEAD;
       populateQualityOptions();
       applyPreset(params.qualityKey);
       resetFields();
@@ -2234,12 +3029,13 @@
       syncToolButtons();
       syncViewButtons();
       resetView();
+      startSimulationWorker();
       setStatus('Redo. Viskositet, tracers, strömlinjer och fluid-drag är aktiva.');
       render();
     }
 
     function frame() {
-      if (running && !isDrawingGeometry && !isBatchRunning) {
+      if (!workerActive && running && !isDrawingGeometry && !isBatchRunning) {
         const loops = Math.max(1, params.substepsPerFrame);
         const frameStart = performance.now();
         let completed = 0;
